@@ -24,10 +24,13 @@ export default {
         'md': '0 4px 6px rgba(0,0,0,0.07)',
         'lg': '0 10px 15px rgba(0,0,0,0.1)',
         'xl': '0 20px 25px rgba(0,0,0,0.15)',
+        '2xl': '0 25px 50px -12px rgba(0, 0, 0, 0.15)',
+        '3xl': '0 35px 60px -12px rgba(0, 0, 0, 0.2)',
       },
       animation: {
         'pulse': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
         'shimmer': 'shimmer 1.5s infinite',
+        'gradient': 'gradient 3s ease infinite',
       },
       keyframes: {
         pulse: {
@@ -37,6 +40,10 @@ export default {
         shimmer: {
           '0%': { backgroundPosition: '-200% 0' },
           '100%': { backgroundPosition: '200% 0' },
+        },
+        gradient: {
+          '0%, 100%': { backgroundPosition: '0% 50%' },
+          '50%': { backgroundPosition: '100% 50%' },
         },
       },
     },

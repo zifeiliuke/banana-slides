@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, FileText, FileEdit, ImagePlus, Paperclip } from 'lucide-react';
+import { Sparkles, FileText, FileEdit, ImagePlus, Paperclip, Palette, Lightbulb } from 'lucide-react';
 import { Button, Textarea, Card, useToast, MaterialGeneratorModal, ReferenceFileCard, ReferenceFileSelector } from '@/components/shared';
 import { TemplateSelector, getTemplateFile } from '@/components/shared/TemplateSelector';
 import { listUserTemplates, type UserTemplate, uploadReferenceFile, type ReferenceFile, associateFileToProject } from '@/api/endpoints';
@@ -287,9 +287,16 @@ export const Home: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-banana-50 via-white to-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-yellow-50 via-orange-50/30 to-pink-50/50 relative overflow-hidden">
+      {/* 背景装饰元素 */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-banana-500/10 rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-orange-400/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-72 h-72 bg-yellow-400/5 rounded-full blur-3xl"></div>
+      </div>
+
       {/* 导航栏 */}
-      <nav className="h-14 md:h-16 bg-white shadow-sm border-b border-gray-100">
+      <nav className="relative h-14 md:h-16 bg-white/80 backdrop-blur-md shadow-sm border-b border-gray-100/50">
         <div className="max-w-7xl mx-auto px-3 md:px-4 h-full flex items-center justify-between">
           <div className="flex items-center gap-2">
             <img
@@ -297,7 +304,9 @@ export const Home: React.FC = () => {
               alt="蕉幻 Banana Slides Logo"
               className="w-8 h-8 md:w-12 md:h-12 rounded-lg object-cover object-center"
             />
-            <span className="text-lg md:text-xl font-bold text-gray-900">蕉幻</span>
+            <span className="text-lg md:text-xl font-bold text-gray-900">
+              蕉幻
+            </span>
           </div>
           <div className="flex items-center gap-1 md:gap-4">
             <Button
@@ -305,7 +314,7 @@ export const Home: React.FC = () => {
               size="sm"
               icon={<ImagePlus size={16} className="md:w-[18px] md:h-[18px]" />}
               onClick={handleOpenMaterialModal}
-              className="hidden sm:inline-flex"
+              className="hidden sm:inline-flex hover:bg-banana-50/50"
             >
               <span className="hidden md:inline">素材生成</span>
             </Button>
@@ -313,30 +322,63 @@ export const Home: React.FC = () => {
               variant="ghost" 
               size="sm" 
               onClick={() => navigate('/history')}
-              className="text-xs md:text-sm"
+              className="text-xs md:text-sm hover:bg-banana-50/50"
             >
               <span className="hidden sm:inline">历史项目</span>
               <span className="sm:hidden">历史</span>
             </Button>
-            <Button variant="ghost" size="sm" className="hidden md:inline-flex">帮助</Button>
+            <Button variant="ghost" size="sm" className="hidden md:inline-flex hover:bg-banana-50/50">帮助</Button>
           </div>
         </div>
       </nav>
 
       {/* 主内容 */}
-      <main className="max-w-4xl mx-auto px-3 md:px-4 py-8 md:py-16">
-        {/* 标题区 */}
-        <div className="text-center mb-8 md:mb-12">
-          <h1 className="text-3xl md:text-5xl font-bold text-gray-900 mb-2 md:mb-4">
-            🍌 蕉幻 Banana Slides
+      <main className="relative max-w-5xl mx-auto px-3 md:px-4 py-8 md:py-12">
+        {/* Hero 标题区 */}
+        <div className="text-center mb-10 md:mb-16 space-y-4 md:space-y-6">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/60 backdrop-blur-sm rounded-full border border-banana-200/50 shadow-sm mb-4">
+            <span className="text-2xl animate-pulse"><Sparkles size={20} color="orange" /></span>
+            <span className="text-sm font-medium text-gray-700">基于 nano banana pro🍌 的原生 AI PPT 生成器</span>
+          </div>
+          
+          <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold leading-tight">
+            <span className="bg-gradient-to-r from-yellow-600 via-orange-500 to-pink-500 bg-clip-text text-transparent" style={{
+              backgroundSize: '200% auto',
+              animation: 'gradient 3s ease infinite',
+            }}>
+              蕉幻 Banana Slides
+            </span>
           </h1>
-          <p className="text-base md:text-xl text-gray-600">
-            Vibe your PPT like vibing code
+          
+          <p className="text-lg md:text-2xl text-gray-600 max-w-3xl mx-auto font-light">
+            <span className="font-medium">Vibe your PPT  like vibing code</span>
+            <br className="hidden md:block" />
+            <span className="text-base md:text-lg text-gray-500 mt-2 block">
+              降低 PPT 制作门槛，让每个人都能快速创作出美观专业的演示文稿
+            </span>
           </p>
+
+          {/* 特性标签 */}
+          <div className="flex flex-wrap items-center justify-center gap-2 md:gap-3 pt-4">
+            {[
+              { icon: <Sparkles size={14} className="text-yellow-600" />, label: '一句话生成 PPT' },
+              { icon: <FileText size={14} className="text-orange-500" />, label: '三种生成路径' },
+              { icon: <FileEdit size={14} className="text-blue-500" />, label: '自然语言修改' },
+              { icon: <Paperclip size={14} className="text-green-600" />, label: '一键导出 PPTX/PDF' },
+            ].map((feature, idx) => (
+              <span
+                key={idx}
+                className="inline-flex items-center gap-1 px-3 py-1.5 bg-white/70 backdrop-blur-sm rounded-full text-xs md:text-sm text-gray-700 border border-gray-200/50 shadow-sm hover:shadow-md transition-all hover:scale-105 cursor-default"
+              >
+                {feature.icon}
+                {feature.label}
+              </span>
+            ))}
+          </div>
         </div>
 
         {/* 创建卡片 */}
-        <Card className="p-4 md:p-10">
+        <Card className="p-4 md:p-10 bg-white/90 backdrop-blur-xl shadow-2xl border-0 hover:shadow-3xl transition-all duration-300">
           {/* 选项卡 */}
           <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mb-6 md:mb-8">
             {(Object.keys(tabConfig) as CreationType[]).map((type) => {
@@ -359,19 +401,27 @@ export const Home: React.FC = () => {
           </div>
 
           {/* 描述 */}
-          <p className="text-sm md:text-base text-gray-600 mb-4 md:mb-6">
-            {tabConfig[activeTab].description}
-          </p>
+          <div className="relative">
+            <p className="text-sm md:text-base mb-4 md:mb-6 leading-relaxed">
+              <span className="inline-flex items-center gap-2 text-gray-600">
+                <Lightbulb size={16} className="text-banana-600 flex-shrink-0" />
+                <span className="font-semibold">
+                  {tabConfig[activeTab].description}
+                </span>
+              </span>
+            </p>
+          </div>
 
           {/* 输入区 - 带按钮 */}
-          <div className="relative mb-2">
+          <div className="relative mb-2 group">
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-banana-400 to-orange-400 rounded-lg opacity-0 group-hover:opacity-20 blur transition-opacity duration-300"></div>
             <Textarea
               placeholder={tabConfig[activeTab].placeholder}
               value={content}
               onChange={(e) => setContent(e.target.value)}
               onPaste={handlePaste}
               rows={activeTab === 'idea' ? 4 : 8}
-              className="pr-20 md:pr-28 pb-12 md:pb-14 text-sm md:text-base" // 为右下角按钮留空间
+              className="relative pr-20 md:pr-28 pb-12 md:pb-14 text-sm md:text-base border-2 border-gray-200 focus:border-banana-400 transition-colors duration-200" // 为右下角按钮留空间
             />
 
             {/* 左下角：上传文件按钮（回形针图标） */}
@@ -430,10 +480,15 @@ export const Home: React.FC = () => {
           )}
 
           {/* 模板选择 */}
-          <div className="mb-6 md:mb-8">
-            <h3 className="text-base md:text-lg font-semibold text-gray-900 mb-3 md:mb-4">
-              🎨 选择风格模板
-            </h3>
+          <div className="mb-6 md:mb-8 pt-4 border-t border-gray-100">
+            <div className="flex items-center gap-2 mb-3 md:mb-4">
+              <div className="flex items-center gap-2">
+                <Palette size={18} className="text-orange-600 flex-shrink-0" />
+                <h3 className="text-base md:text-lg font-semibold text-gray-900">
+                  选择风格模板
+                </h3>
+              </div>
+            </div>
             <TemplateSelector
               onSelect={handleTemplateSelect}
               selectedTemplateId={selectedTemplateId}

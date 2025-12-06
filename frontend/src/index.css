@@ -82,6 +82,16 @@ body {
   }
 }
 
+/* 渐变文本动画 */
+@keyframes gradient {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
 /* Markdown 内容样式 - 仅保留基础容器样式，具体样式由 Markdown.tsx 组件内的 Tailwind 类处理 */
 .markdown-content {
   line-height: 1.6;
