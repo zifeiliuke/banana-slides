@@ -21,6 +21,8 @@ services:
       - ./backend/instance:/app/backend/instance
       # 持久化上传的文件
       - ./uploads:/app/uploads
+      # 挂载代码目录以便开发时实时更新（可选，生产环境建议移除）
+      - ./backend:/app/backend
     restart: unless-stopped
     healthcheck:
       # 健康检查同样跟随 PORT（默认 5000）
@@ -44,7 +46,7 @@ services:
         NPM_REGISTRY: ${NPM_REGISTRY:-}
     container_name: banana-slides-frontend
     ports:
-      - "3000:80"
+      - "3004:80"
     depends_on:
       - backend
     restart: unless-stopped

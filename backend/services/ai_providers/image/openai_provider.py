@@ -95,22 +95,108 @@ class OpenAIImageProvider(ImageProvider):
             logger.debug(f"Config - aspect_ratio: {aspect_ratio} (resolution ignored, OpenAI format only supports 1K)")
             
             # Note: resolution is not supported in OpenAI format, only aspect_ratio via system message
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": f"aspect_ratio={aspect_ratio}"},
-                    {"role": "user", "content": content},
-                ],
-                modalities=["text", "image"]
-            )
+            # Try with modalities first (for OpenAI-compatible APIs)
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": f"aspect_ratio={aspect_ratio}"},
+                        {"role": "user", "content": content},
+                    ],
+                    modalities=["text", "image"]
+                )
+            except Exception as modalities_error:
+                logger.warning(f"Failed with modalities parameter: {modalities_error}, trying without...")
+                # Fallback: try without modalities parameter (some APIs don't support it)
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": f"aspect_ratio={aspect_ratio}"},
+                        {"role": "user", "content": content},
+                    ]
+                )
             
             logger.debug("OpenAI API call completed")
             
             # Extract image from response - handle different response formats
             message = response.choices[0].message
             
-            # Debug: log available attributes
-            logger.debug(f"Response message attributes: {dir(message)}")
+            # OpenRouter returns images in model_extra['images'] (not in standard content field)
+            if hasattr(message, 'model_extra') and message.model_extra and 'images' in message.model_extra:
+                images_data = message.model_extra['images']
+                logger.debug(f"Found images in model_extra: {len(images_data) if isinstance(images_data, list) else 'N/A'} items")
+                
+                if isinstance(images_data, list) and len(images_data) > 0:
+                    # Extract image from the first item
+                    first_image = images_data[0]
+                    
+                    # Handle different image formats
+                    if isinstance(first_image, str):
+                        # Direct string: base64 data URL or HTTP URL
+                        if first_image.startswith('data:image'):
+                            base64_data = first_image.split(',', 1)[1]
+                            image_data = base64.b64decode(base64_data)
+                            image = Image.open(BytesIO(image_data))
+                            logger.debug(f"Successfully extracted image from base64 data URL: {image.size}, {image.mode}")
+                            return image
+                        elif first_image.startswith('http://') or first_image.startswith('https://'):
+                            response = requests.get(first_image, timeout=30, stream=True)
+                            response.raise_for_status()
+                            image = Image.open(BytesIO(response.content))
+                            image.load()
+                            logger.debug(f"Successfully downloaded image from URL: {image.size}, {image.mode}")
+                            return image
+                    elif isinstance(first_image, dict):
+                        # OpenRouter format: {'type': 'image_url', 'image_url': {'url': 'data:image/...'}}
+                        # Check for image_url format (OpenRouter standard)
+                        if 'image_url' in first_image:
+                            image_url_obj = first_image['image_url']
+                            if isinstance(image_url_obj, dict) and 'url' in image_url_obj:
+                                image_url = image_url_obj['url']
+                                
+                                if image_url.startswith('data:image'):
+                                    # Base64 data URL
+                                    base64_data = image_url.split(',', 1)[1]
+                                    image_data = base64.b64decode(base64_data)
+                                    image = Image.open(BytesIO(image_data))
+                                    logger.debug(f"Successfully extracted image from image_url base64: {image.size}, {image.mode}")
+                                    return image
+                                elif image_url.startswith('http://') or image_url.startswith('https://'):
+                                    # HTTP URL - download it
+                                    response = requests.get(image_url, timeout=30, stream=True)
+                                    response.raise_for_status()
+                                    image = Image.open(BytesIO(response.content))
+                                    image.load()
+                                    logger.debug(f"Successfully downloaded image from image_url: {image.size}, {image.mode}")
+                                    return image
+                        
+                        # Fallback: Check for direct 'url' key
+                        if 'url' in first_image:
+                            image_url = first_image['url']
+                            if image_url.startswith('data:image'):
+                                base64_data = image_url.split(',', 1)[1]
+                                image_data = base64.b64decode(base64_data)
+                                image = Image.open(BytesIO(image_data))
+                                logger.debug(f"Successfully extracted image from direct url base64: {image.size}, {image.mode}")
+                                return image
+                            elif image_url.startswith('http://') or image_url.startswith('https://'):
+                                response = requests.get(image_url, timeout=30, stream=True)
+                                response.raise_for_status()
+                                image = Image.open(BytesIO(response.content))
+                                image.load()
+                                logger.debug(f"Successfully downloaded image from direct url: {image.size}, {image.mode}")
+                                return image
+                        
+                        # Fallback: Check for 'data' key
+                        elif 'data' in first_image:
+                            base64_data = first_image['data']
+                            if isinstance(base64_data, str):
+                                if base64_data.startswith('data:image'):
+                                    base64_data = base64_data.split(',', 1)[1]
+                                image_data = base64.b64decode(base64_data)
+                                image = Image.open(BytesIO(image_data))
+                                logger.debug(f"Successfully extracted image from dict data: {image.size}, {image.mode}")
+                                return image
             
             # Try multi_mod_content first (custom format from some proxies)
             if hasattr(message, 'multi_mod_content') and message.multi_mod_content:
@@ -123,6 +209,16 @@ class OpenAIImageProvider(ImageProvider):
                         image = Image.open(BytesIO(image_data))
                         logger.debug(f"Successfully extracted image: {image.size}, {image.mode}")
                         return image
+            
+            # Check for refusal or error messages
+            if hasattr(message, 'refusal') and message.refusal:
+                logger.warning(f"API returned refusal: {message.refusal}")
+            
+            # Check for tool_calls (some APIs use this)
+            if hasattr(message, 'tool_calls') and message.tool_calls:
+                logger.info(f"Found tool_calls: {len(message.tool_calls)} items")
+                for tool_call in message.tool_calls:
+                    logger.info(f"Tool call: {tool_call}")
             
             # Try standard OpenAI content format (list of content parts)
             if hasattr(message, 'content') and message.content:
@@ -210,10 +306,10 @@ class OpenAIImageProvider(ImageProvider):
                         except Exception as decode_error:
                             logger.warning(f"Failed to decode base64 image from string: {decode_error}")
             
-            # Log raw response for debugging
-            logger.warning(f"Unable to extract image. Raw message type: {type(message)}")
+            # Log error details
+            logger.warning(f"Unable to extract image. Message type: {type(message)}")
             logger.warning(f"Message content type: {type(getattr(message, 'content', None))}")
-            logger.warning(f"Message content: {getattr(message, 'content', 'N/A')}")
+            logger.warning(f"Message content: {repr(getattr(message, 'content', 'N/A'))}")
             
             raise ValueError("No valid multimodal response received from OpenAI API")
             
