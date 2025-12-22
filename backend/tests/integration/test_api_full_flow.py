@@ -8,13 +8,24 @@ This test validates the complete API flow without UI:
 4. Generate images
 5. Export PPT
 
-Note: This test requires real AI API keys (GOOGLE_API_KEY)
+Note: 
+- This test requires REAL running backend service (not Flask test client)
+- This test requires real AI API keys (GOOGLE_API_KEY)
+- These tests should only run in the docker-test stage of CI
 """
 
 import pytest
 import requests
 import time
+import os
 from pathlib import Path
+
+
+# Skip these tests if service is not running (for backend-integration-test stage)
+pytestmark = pytest.mark.skipif(
+    os.environ.get('SKIP_SERVICE_TESTS', '').lower() == 'true',
+    reason="Skipping tests that require running backend service"
+)
 
 
 BASE_URL = "http://localhost:5000"
@@ -148,10 +159,15 @@ def project_id():
 
 
 class TestAPIFullFlow:
-    """API Integration Tests - Full workflow from creation to export."""
+    """API Integration Tests - Full workflow from creation to export.
+    
+    These tests require a running backend service and are designed to run
+    in the docker-test stage of CI where services are started.
+    """
     
     @pytest.mark.integration
     @pytest.mark.slow
+    @pytest.mark.requires_service
     def test_api_full_flow_create_to_export(self, project_id):
         """
         Test complete API flow: Create project → Outline → Descriptions → Images → Export PPT
@@ -299,8 +315,12 @@ class TestAPIFullFlow:
         print('=' * 40 + '\n')
     
     @pytest.mark.integration
+    @pytest.mark.requires_service
     def test_quick_api_flow_no_ai(self):
-        """Quick test: Only verify API endpoints work (skip AI generation)."""
+        """Quick test: Only verify API endpoints work (skip AI generation).
+        
+        This test requires a running backend service.
+        """
         print('\n🏃 Quick API flow test (skip AI generation)\n')
         
         # Create project

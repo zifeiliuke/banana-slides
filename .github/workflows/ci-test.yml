@@ -89,10 +89,13 @@ jobs:
       - name: Run integration tests
         run: |
           cd backend
-          uv run pytest tests/integration -v
+          # Skip tests that require running backend service (marked with @pytest.mark.requires_service)
+          # These tests will run in the docker-test stage where services are started
+          uv run pytest tests/integration -v -m "not requires_service"
         env:
           # Use mock mode, no real API dependency
           TESTING: true
+          SKIP_SERVICE_TESTS: true
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY || 'mock-api-key-for-testing' }}
 
   # ================================
@@ -273,18 +276,20 @@ jobs:
         env:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       
-      - name: Run Backend API Integration tests
+      - name: Run Backend API Integration tests (requires running service)
         if: steps.check_e2e.outputs.skip != 'true' && env.GOOGLE_API_KEY != '' && env.GOOGLE_API_KEY != 'mock-api-key-for-testing'
         run: |
-          # Run API integration tests (Python pytest)
+          # Run API integration tests that require real running backend service
+          # These tests use requests library to call real HTTP endpoints
           # Tests the full AI generation workflow via API calls
-          # Requires: Real Google API key
-          echo "Running Backend API integration tests with Gemini format"
+          # Requires: Real Google API key + Running backend service
+          echo "Running Backend API integration tests with real service (Gemini format)"
           cd backend
-          uv run pytest tests/integration/test_api_full_flow.py -v -m integration
+          uv run pytest tests/integration/test_api_full_flow.py -v -m "integration and requires_service"
         env:
           # Ensure API key is not logged
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          SKIP_SERVICE_TESTS: false
         timeout-minutes: 15
         continue-on-error: false
       
