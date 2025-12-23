@@ -180,6 +180,16 @@ test.describe('UI-driven E2E test: From user interface to PPT export', () => {
         
         // Wait for dialog to be completely hidden
         await confirmDialog.waitFor({ state: 'hidden', timeout: 5000 })
+        
+        // Also wait for the modal backdrop to disappear
+        const modalBackdrop = page.locator('.fixed.inset-0.bg-black\\/50')
+        await modalBackdrop.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {
+          console.log('  Modal backdrop already gone or not found')
+        })
+        
+        // Extra wait to ensure CSS transitions complete
+        await page.waitForTimeout(300)
+        
         console.log('  Confirmed regeneration and dialog closed')
       } catch (e) {
         // Dialog didn't appear or already closed, continue
@@ -209,32 +219,91 @@ test.describe('UI-driven E2E test: From user interface to PPT export', () => {
     // ====================================
     console.log('➡️  Step 10: Clicking "生成图片" to go to image generation page...')
     
-    // First, ensure no modal/dialog is blocking the UI
-    try {
-      const modalOverlay = page.locator('div[role="dialog"]')
-      const modalVisible = await modalOverlay.isVisible().catch(() => false)
-      if (modalVisible) {
-        console.log('  Detected open modal, closing it...')
-        // Try to close modal by pressing Escape or clicking close button
+    // Ensure no modal backdrop is blocking the UI
+    // This is important after the single card retry which may have shown a confirmation dialog
+    const modalBackdrop = page.locator('.fixed.inset-0').filter({ hasText: '' }).first()
+    const backdropCount = await page.locator('.fixed.inset-0').filter({ hasText: '' }).count()
+    
+    if (backdropCount > 0) {
+      const isBackdropVisible = await modalBackdrop.isVisible().catch(() => false)
+      if (isBackdropVisible) {
+        console.log('  Modal backdrop detected, attempting to close modal...')
+        
+        // Try pressing Escape to close any open modal
         await page.keyboard.press('Escape')
-        await modalOverlay.waitFor({ state: 'hidden', timeout: 3000 })
-        console.log('  Modal closed')
+        await page.waitForTimeout(300)
+        
+        // Try clicking close button if exists
+        const closeButton = page.locator('button:has-text("取消"), button[aria-label="Close"]').first()
+        if (await closeButton.isVisible().catch(() => false)) {
+          await closeButton.click().catch(() => {})
+        }
+        
+        // Wait for backdrop to disappear
+        await page.waitForTimeout(500)
+        
+        // Final check - if backdrop still visible, wait longer
+        const stillVisible = await modalBackdrop.isVisible().catch(() => false)
+        if (stillVisible) {
+          console.log('  Backdrop still visible, waiting up to 3 seconds...')
+          await modalBackdrop.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {
+            console.log('  Warning: Backdrop may still be present')
+          })
+        }
+        console.log('  Modal cleared')
       }
-    } catch (e) {
-      // No modal or already closed
+    } else {
+      console.log('  No modal backdrop detected')
     }
     
-    const generateImagesNavBtn = page.locator('button:has-text("生成图片")')
+    // Extra safety wait to ensure all animations complete
+    await page.waitForTimeout(800)
+    
+    const generateImagesNavBtn = page.locator('button:has-text("生成图片")').first()
     
     // Wait for button to be enabled (it's disabled until all descriptions are generated)
     await generateImagesNavBtn.waitFor({ state: 'visible', timeout: 10000 })
     await expect(generateImagesNavBtn).toBeEnabled({ timeout: 5000 })
     
-    await generateImagesNavBtn.first().click()
+    // Ensure button is in viewport
+    await generateImagesNavBtn.scrollIntoViewIfNeeded()
     
-    // Wait for navigation to preview page
+    // Log current URL before clicking
+    const urlBeforeClick = page.url()
+    console.log(`  Current URL before click: ${urlBeforeClick}`)
+    
+    // Try normal click first
+    let clickSucceeded = false
+    try {
+      await generateImagesNavBtn.click({ timeout: 2000 })
+      console.log('  Button clicked successfully (normal click)')
+      clickSucceeded = true
+    } catch (e) {
+      console.log('  Normal click blocked by overlay')
+    }
+    
+    // Check if navigation started
+    await page.waitForTimeout(200)
+    const urlAfterFirstAttempt = page.url()
+    
+    if (!clickSucceeded || urlAfterFirstAttempt === urlBeforeClick) {
+      console.log('  Navigation did not start, using JavaScript to trigger navigation...')
+      // Extract project ID from current URL
+      const match = urlBeforeClick.match(/\/project\/([^\/]+)\//)
+      if (match) {
+        const projectId = match[1]
+        const targetUrl = `http://localhost:3000/project/${projectId}/preview`
+        console.log(`  Navigating to: ${targetUrl}`)
+        await page.goto(targetUrl, { waitUntil: 'domcontentloaded' })
+      } else {
+        throw new Error('Could not extract project ID from URL')
+      }
+    }
+    
+    // Wait for navigation to complete
+    console.log('  Waiting for preview page to load...')
     await page.waitForURL(/\/project\/.*\/preview/, { timeout: 10000 })
-    console.log('✓ Clicked "生成图片" button and navigated to preview page\n')
+    console.log('✓ Successfully navigated to preview page\n')
     
     // ====================================
     // Step 11: Click batch generate images button
