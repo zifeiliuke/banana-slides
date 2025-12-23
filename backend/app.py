@@ -6,9 +6,6 @@ import sys
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
-from sqlalchemy import event
-from sqlalchemy.engine import Engine
-import sqlite3
 from sqlalchemy.exc import SQLAlchemyError
 from flask_migrate import Migrate
 
@@ -24,46 +21,18 @@ from config import Config
 from controllers.material_controller import material_bp, material_global_bp
 from controllers.reference_file_controller import reference_file_bp
 from controllers.settings_controller import settings_bp
-from controllers import project_bp, page_bp, template_bp, user_template_bp, export_bp, file_bp
-
-
-# Enable SQLite WAL mode for all connections
-@event.listens_for(Engine, "connect")
-def set_sqlite_pragma(dbapi_conn, connection_record):
-    """
-    Enable WAL mode and related PRAGMAs for each SQLite connection.
-    Registered once at import time to avoid duplicate handlers when
-    create_app() is called multiple times.
-    """
-    # Only apply to SQLite connections
-    if not isinstance(dbapi_conn, sqlite3.Connection):
-        return
-
-    cursor = dbapi_conn.cursor()
-    try:
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA synchronous=NORMAL")
-        cursor.execute("PRAGMA busy_timeout=30000")  # 30 seconds timeout
-    finally:
-        cursor.close()
+from controllers import project_bp, page_bp, template_bp, user_template_bp, export_bp, file_bp, auth_bp, user_settings_bp, premium_bp, admin_bp
 
 
 def create_app():
     """Application factory"""
     app = Flask(__name__)
-    
+
     # Load configuration from Config class
     app.config.from_object(Config)
-    
-    # Override with environment-specific paths (use absolute path)
-    backend_dir = os.path.dirname(os.path.abspath(__file__))
-    instance_dir = os.path.join(backend_dir, 'instance')
-    os.makedirs(instance_dir, exist_ok=True)
-    
-    db_path = os.path.join(instance_dir, 'database.db')
-    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
-    
+
     # Ensure upload folder exists
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(backend_dir)
     upload_folder = os.path.join(project_root, 'uploads')
     os.makedirs(upload_folder, exist_ok=True)
@@ -99,6 +68,7 @@ def create_app():
     Migrate(app, db)
     
     # Register blueprints
+    app.register_blueprint(auth_bp)  # Auth must be first
     app.register_blueprint(project_bp)
     app.register_blueprint(page_bp)
     app.register_blueprint(template_bp)
@@ -109,6 +79,9 @@ def create_app():
     app.register_blueprint(material_global_bp)
     app.register_blueprint(reference_file_bp, url_prefix='/api/reference-files')
     app.register_blueprint(settings_bp)
+    app.register_blueprint(user_settings_bp)
+    app.register_blueprint(premium_bp)
+    app.register_blueprint(admin_bp)
 
     with app.app_context():
         # Load settings from database and sync to app.config

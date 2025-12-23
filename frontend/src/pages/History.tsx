@@ -4,6 +4,7 @@ import { Home, Trash2 } from 'lucide-react';
 import { Button, Loading, Card, useToast, useConfirm } from '@/components/shared';
 import { ProjectCard } from '@/components/history/ProjectCard';
 import { useProjectStore } from '@/store/useProjectStore';
+import { UserMenu } from '@/components/auth';
 import * as api from '@/api/endpoints';
 import { normalizeProject } from '@/utils';
 import { getProjectTitle, getProjectRoute } from '@/utils/projectUtils';
@@ -273,6 +274,7 @@ export const History: React.FC = () => {
               <span className="hidden sm:inline">主页</span>
               <span className="sm:hidden">主页</span>
             </Button>
+            <UserMenu />
           </div>
         </div>
       </nav>

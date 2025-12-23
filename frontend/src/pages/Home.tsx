@@ -5,6 +5,7 @@ import { Button, Textarea, Card, useToast, MaterialGeneratorModal, ReferenceFile
 import { TemplateSelector, getTemplateFile } from '@/components/shared/TemplateSelector';
 import { listUserTemplates, type UserTemplate, uploadReferenceFile, type ReferenceFile, associateFileToProject, triggerFileParse, uploadMaterial, associateMaterialsToProject } from '@/api/endpoints';
 import { useProjectStore } from '@/store/useProjectStore';
+import { UserMenu } from '@/components/auth';
 
 type CreationType = 'idea' | 'outline' | 'description';
 
@@ -507,6 +508,7 @@ export const Home: React.FC = () => {
               <span className="sm:hidden">设</span>
             </Button>
             <Button variant="ghost" size="sm" className="hidden md:inline-flex hover:bg-banana-50/50">帮助</Button>
+            <UserMenu />
           </div>
         </div>
       </nav>

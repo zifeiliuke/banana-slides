@@ -789,3 +789,235 @@ export const resetSettings = async (): Promise<ApiResponse<Settings>> => {
   const response = await apiClient.post<ApiResponse<Settings>>('/api/settings/reset');
   return response.data;
 };
+
+// ===== 用户设置 API =====
+
+export interface UserSettings {
+  id: string;
+  user_id: string;
+  ai_provider_format: 'openai' | 'gemini';
+  api_base_url?: string;
+  api_key_length: number;
+  text_model?: string;
+  image_model?: string;
+  image_caption_model?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * 获取用户设置
+ */
+export const getUserSettings = async (): Promise<ApiResponse<UserSettings>> => {
+  const response = await apiClient.get<ApiResponse<UserSettings>>('/api/user/settings');
+  return response.data;
+};
+
+/**
+ * 更新用户设置
+ */
+export const updateUserSettings = async (data: {
+  ai_provider_format?: 'openai' | 'gemini';
+  api_base_url?: string;
+  api_key?: string;
+  text_model?: string;
+  image_model?: string;
+  image_caption_model?: string;
+}): Promise<ApiResponse<UserSettings>> => {
+  const response = await apiClient.put<ApiResponse<UserSettings>>('/api/user/settings', data);
+  return response.data;
+};
+
+/**
+ * 获取用户资料
+ */
+export const getUserProfile = async (): Promise<ApiResponse<{ user: import('@/types').User }>> => {
+  const response = await apiClient.get('/api/user/profile');
+  return response.data;
+};
+
+/**
+ * 更新用户资料
+ */
+export const updateUserProfile = async (data: { email?: string }): Promise<ApiResponse<import('@/types').User>> => {
+  const response = await apiClient.put('/api/user/profile', data);
+  return response.data;
+};
+
+// ===== 会员 API =====
+
+export interface PremiumStatus {
+  tier: 'free' | 'premium';
+  is_premium_active: boolean;
+  premium_expires_at?: string;
+}
+
+export interface PremiumHistory {
+  id: string;
+  user_id: string;
+  action: string;
+  duration_days?: number;
+  recharge_code_id?: string;
+  admin_id?: string;
+  note?: string;
+  created_at: string;
+}
+
+/**
+ * 获取会员状态
+ */
+export const getPremiumStatus = async (): Promise<ApiResponse<PremiumStatus>> => {
+  const response = await apiClient.get<ApiResponse<PremiumStatus>>('/api/premium/status');
+  return response.data;
+};
+
+/**
+ * 获取会员历史
+ */
+export const getPremiumHistory = async (): Promise<ApiResponse<{ history: PremiumHistory[] }>> => {
+  const response = await apiClient.get('/api/premium/history');
+  return response.data;
+};
+
+/**
+ * 兑换充值码
+ */
+export const redeemCode = async (code: string): Promise<ApiResponse<{
+  message: string;
+  tier: string;
+  is_premium_active: boolean;
+  premium_expires_at: string;
+  duration_days: number;
+}>> => {
+  const response = await apiClient.post('/api/premium/redeem', { code });
+  return response.data;
+};
+
+// ===== 管理员 API =====
+
+export interface AdminStats {
+  users: {
+    total: number;
+    premium: number;
+    free: number;
+    active: number;
+  };
+  recharge_codes: {
+    total: number;
+    used: number;
+    unused: number;
+  };
+}
+
+export interface RechargeCode {
+  id: string;
+  code: string;
+  duration_days: number;
+  is_used: boolean;
+  used_by_user_id?: string;
+  used_at?: string;
+  created_by_admin_id: string;
+  created_at: string;
+  expires_at?: string;
+}
+
+/**
+ * 获取管理员统计数据
+ */
+export const getAdminStats = async (): Promise<ApiResponse<AdminStats>> => {
+  const response = await apiClient.get<ApiResponse<AdminStats>>('/api/admin/stats');
+  return response.data;
+};
+
+/**
+ * 获取用户列表（管理员）
+ */
+export const adminListUsers = async (params?: {
+  page?: number;
+  per_page?: number;
+  search?: string;
+  tier?: string;
+  role?: string;
+}): Promise<ApiResponse<{
+  users: import('@/types').User[];
+  total: number;
+  page: number;
+  per_page: number;
+  pages: number;
+}>> => {
+  const response = await apiClient.get('/api/admin/users', { params });
+  return response.data;
+};
+
+/**
+ * 获取用户详情（管理员）
+ */
+export const adminGetUser = async (userId: string): Promise<ApiResponse<import('@/types').User>> => {
+  const response = await apiClient.get(`/api/admin/users/${userId}`);
+  return response.data;
+};
+
+/**
+ * 授予用户会员（管理员）
+ */
+export const adminGrantPremium = async (userId: string, data: {
+  duration_days: number;
+  note?: string;
+}): Promise<ApiResponse<{ message: string; user: import('@/types').User }>> => {
+  const response = await apiClient.post(`/api/admin/users/${userId}/grant-premium`, data);
+  return response.data;
+};
+
+/**
+ * 撤销用户会员（��理员）
+ */
+export const adminRevokePremium = async (userId: string, note?: string): Promise<ApiResponse<{ message: string; user: import('@/types').User }>> => {
+  const response = await apiClient.post(`/api/admin/users/${userId}/revoke-premium`, { note });
+  return response.data;
+};
+
+/**
+ * 启用/禁用用户（管理员）
+ */
+export const adminToggleUserActive = async (userId: string): Promise<ApiResponse<{ message: string; user: import('@/types').User }>> => {
+  const response = await apiClient.post(`/api/admin/users/${userId}/toggle-active`);
+  return response.data;
+};
+
+/**
+ * 获取充值码列表（管理员）
+ */
+export const adminListRechargeCodes = async (params?: {
+  page?: number;
+  per_page?: number;
+  is_used?: string;
+}): Promise<ApiResponse<{
+  codes: RechargeCode[];
+  total: number;
+  page: number;
+  per_page: number;
+  pages: number;
+}>> => {
+  const response = await apiClient.get('/api/admin/recharge-codes', { params });
+  return response.data;
+};
+
+/**
+ * 创建充值码（管理员）
+ */
+export const adminCreateRechargeCodes = async (data: {
+  count: number;
+  duration_days: number;
+  expires_in_days?: number;
+}): Promise<ApiResponse<{ message: string; codes: RechargeCode[] }>> => {
+  const response = await apiClient.post('/api/admin/recharge-codes', data);
+  return response.data;
+};
+
+/**
+ * 删除充值码（管理员）
+ */
+export const adminDeleteRechargeCode = async (codeId: string): Promise<ApiResponse<{ message: string }>> => {
+  const response = await apiClient.delete(`/api/admin/recharge-codes/${codeId}`);
+  return response.data;
+};

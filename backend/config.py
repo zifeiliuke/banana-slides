@@ -15,24 +15,26 @@ PROJECT_ROOT = os.path.dirname(BASE_DIR)
 class Config:
     """Base configuration"""
     SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key-change-this')
-    
-    # 数据库配置
-    # Use absolute path to avoid WSL path issues
-    db_path = os.path.join(BASE_DIR, 'instance', 'database.db')
+
+    # 数据库配置 - MySQL
+    MYSQL_HOST = os.getenv('MYSQL_HOST', '10.10.3.104')
+    MYSQL_PORT = os.getenv('MYSQL_PORT', '3306')
+    MYSQL_USER = os.getenv('MYSQL_USER', 'liuke')
+    MYSQL_PASSWORD = os.getenv('MYSQL_PASSWORD', '123067zcl')
+    MYSQL_DATABASE = os.getenv('MYSQL_DATABASE', 'banana-slides')
+
     SQLALCHEMY_DATABASE_URI = os.getenv(
-        'DATABASE_URL', 
-        f'sqlite:///{db_path}'
+        'DATABASE_URL',
+        f'mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}?charset=utf8mb4'
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    
-    # SQLite线程安全配置 - 关键修复
+
+    # MySQL 连接池配置
     SQLALCHEMY_ENGINE_OPTIONS = {
-        'connect_args': {
-            'check_same_thread': False,  # 允许跨线程使用（仅SQLite）
-            'timeout': 30  # 增加超时时间
-        },
         'pool_pre_ping': True,  # 连接前检查
         'pool_recycle': 3600,  # 1小时回收连接
+        'pool_size': 10,  # 连接池大小
+        'max_overflow': 20,  # 最大溢出连接数
     }
     
     # 文件存储配置

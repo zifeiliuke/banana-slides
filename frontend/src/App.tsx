@@ -6,12 +6,22 @@ import { OutlineEditor } from './pages/OutlineEditor';
 import { DetailEditor } from './pages/DetailEditor';
 import { SlidePreview } from './pages/SlidePreview';
 import { Settings } from './pages/Settings';
+import { Login } from './pages/Login';
+import { Admin } from './pages/Admin';
 import { useProjectStore } from './store/useProjectStore';
+import { useAuthStore } from './store/useAuthStore';
 import { useToast, GithubLink } from './components/shared';
+import { AuthGuard } from './components/auth';
 
 function App() {
   const { currentProject, syncProject, error, setError } = useProjectStore();
+  const { checkAuth } = useAuthStore();
   const { show, ToastContainer } = useToast();
+
+  // 应用启动时检查认证状态
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   // 恢复项目状态
   useEffect(() => {
@@ -32,12 +42,19 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/history" element={<History />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/project/:projectId/outline" element={<OutlineEditor />} />
-        <Route path="/project/:projectId/detail" element={<DetailEditor />} />
-        <Route path="/project/:projectId/preview" element={<SlidePreview />} />
+        {/* 公开路由 */}
+        <Route path="/login" element={<Login />} />
+
+        {/* 受保护的路由 */}
+        <Route path="/" element={<AuthGuard><Home /></AuthGuard>} />
+        <Route path="/history" element={<AuthGuard><History /></AuthGuard>} />
+        <Route path="/settings" element={<AuthGuard><Settings /></AuthGuard>} />
+        <Route path="/admin" element={<AuthGuard requireAdmin><Admin /></AuthGuard>} />
+        <Route path="/project/:projectId/outline" element={<AuthGuard><OutlineEditor /></AuthGuard>} />
+        <Route path="/project/:projectId/detail" element={<AuthGuard><DetailEditor /></AuthGuard>} />
+        <Route path="/project/:projectId/preview" element={<AuthGuard><SlidePreview /></AuthGuard>} />
+
+        {/* 默认重定向 */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <ToastContainer />
@@ -47,4 +64,3 @@ function App() {
 }
 
 export default App;
-

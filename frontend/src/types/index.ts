@@ -126,4 +126,44 @@ export interface Settings {
   updated_at?: string;
 }
 
+// 用户角色
+export type UserRole = 'user' | 'admin';
+
+// 用户等级
+export type UserTier = 'free' | 'premium';
+
+// 用户信息
+export interface User {
+  id: string;
+  username: string;
+  email?: string;
+  role: UserRole;
+  tier: UserTier;
+  premium_expires_at?: string;
+  is_premium_active?: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// 登录请求
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+// 注册请求
+export interface RegisterRequest {
+  username: string;
+  password: string;
+  email?: string;
+}
+
+// 认证响应
+export interface AuthResponse {
+  user: User;
+  access_token: string;
+  refresh_token: string;
+}
+
 

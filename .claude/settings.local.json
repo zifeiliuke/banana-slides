@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build:*)",
+      "Bash(python -c:*)",
+      "Bash(pip install:*)",
+      "Bash(source:*)",
+      "Bash(uv pip install:*)",
+      "Bash(python -m migrations.migrate_to_multi_user:*)",
+      "Bash(sudo chown:*)",
+      "Bash(lsof:*)",
+      "Bash(python app.py:*)",
+      "Bash(curl:*)",
+      "Bash(npm run dev)",
+      "Bash(python -m json.tool:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiZjhkZTEwZWUtZjcwZC00MjdmLWE5MzAtZTk2MWNkNDkyNmJiIiwidXNlcm5hbWUiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsInRpZXIiOiJwcmVtaXVtIiwiZXhwIjoxNzY2NDU5MTg5LCJpYXQiOjE3NjY0NTU1ODksInR5cGUiOiJhY2Nlc3MifQ.Far_MJEByZd5pOcb_OrWgbTSTEwNmyD8brkrzEkknME\" curl -s http://localhost:5000/api/projects -H \"Authorization: Bearer $TOKEN\")",
+      "Bash(docker compose build:*)",
+      "Bash(docker compose:*)"
+    ]
+  }
+}

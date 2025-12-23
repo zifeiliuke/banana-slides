@@ -16,10 +16,22 @@ import threading
 from models import db, ReferenceFile, Project
 from utils.response import success_response, error_response, bad_request, not_found
 from services.file_parser_service import FileParserService
+from middleware import login_required, get_current_user
 
 logger = logging.getLogger(__name__)
 
 reference_file_bp = Blueprint('reference_file', __name__)
+
+
+def _verify_project_access(project_id):
+    """Helper to verify user has access to project"""
+    if project_id is None or project_id in ['none', 'global']:
+        return None, None  # Global files allowed
+    current_user = get_current_user()
+    project = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
+    if not project:
+        return None, not_found('Project')
+    return project, None
 
 
 def _allowed_file(filename: str, allowed_extensions: set) -> bool:
@@ -103,6 +115,7 @@ def _parse_file_async(file_id: str, file_path: str, filename: str, app):
 
 
 @reference_file_bp.route('/upload', methods=['POST'])
+@login_required
 def upload_reference_file():
     """
     POST /api/reference-files/upload - Upload a reference file
@@ -152,10 +165,10 @@ def upload_reference_file():
         if project_id == 'none' or not project_id:
             project_id = None
         else:
-            # Verify project exists
-            project = Project.query.get(project_id)
-            if not project:
-                return not_found('Project')
+            # Verify project exists and user owns it
+            project, error = _verify_project_access(project_id)
+            if error:
+                return error
         
         # Secure filename for filesystem (but keep original for database)
         # secure_filename removes non-ASCII chars, so we need to handle Chinese characters
@@ -211,6 +224,7 @@ def upload_reference_file():
 
 
 @reference_file_bp.route('/<file_id>', methods=['GET'])
+@login_required
 def get_reference_file(file_id):
     """
     GET /api/reference-files/<file_id> - Get reference file information
@@ -232,6 +246,7 @@ def get_reference_file(file_id):
 
 
 @reference_file_bp.route('/<file_id>', methods=['DELETE'])
+@login_required
 def delete_reference_file(file_id):
     """
     DELETE /api/reference-files/<file_id> - Delete a reference file
@@ -268,6 +283,7 @@ def delete_reference_file(file_id):
 
 
 @reference_file_bp.route('/project/<project_id>', methods=['GET'])
+@login_required
 def list_project_reference_files(project_id):
     """
     GET /api/reference-files/project/<project_id> - List all reference files for a project
@@ -281,18 +297,28 @@ def list_project_reference_files(project_id):
         List of reference files
     """
     try:
-        # Special case: 'all' means list all files
+        current_user = get_current_user()
+
+        # Special case: 'all' means list all files owned by user
         if project_id == 'all':
-            reference_files = ReferenceFile.query.all()
+            # Get user's project IDs
+            user_project_ids = [p.id for p in Project.query.filter_by(user_id=current_user.id).all()]
+            # Get files from user's projects + global files
+            reference_files = ReferenceFile.query.filter(
+                db.or_(
+                    ReferenceFile.project_id.in_(user_project_ids),
+                    ReferenceFile.project_id.is_(None)
+                )
+            ).all()
         # Special case: 'global' or 'none' means list global files (not associated with any project)
         elif project_id in ['global', 'none']:
             reference_files = ReferenceFile.query.filter_by(project_id=None).all()
         else:
-            # Verify project exists
-            project = Project.query.get(project_id)
-            if not project:
-                return not_found('Project')
-            
+            # Verify project exists and user owns it
+            project, error = _verify_project_access(project_id)
+            if error:
+                return error
+
             reference_files = ReferenceFile.query.filter_by(project_id=project_id).all()
         
         # 列表查询时不包含 markdown_content 和失败计数，加快响应速度
@@ -306,6 +332,7 @@ def list_project_reference_files(project_id):
 
 
 @reference_file_bp.route('/<file_id>/parse', methods=['POST'])
+@login_required
 def trigger_file_parse(file_id):
     """
     POST /api/reference-files/<file_id>/parse - Trigger parsing for a reference file
@@ -362,6 +389,7 @@ def trigger_file_parse(file_id):
 
 
 @reference_file_bp.route('/<file_id>/associate', methods=['POST'])
+@login_required
 def associate_file_to_project(file_id):
     """
     POST /api/reference-files/<file_id>/associate - Associate a reference file to a project
@@ -381,14 +409,14 @@ def associate_file_to_project(file_id):
         
         data = request.get_json() or {}
         project_id = data.get('project_id')
-        
+
         if not project_id:
             return bad_request("project_id is required")
-        
-        # Verify project exists
-        project = Project.query.get(project_id)
-        if not project:
-            return not_found('Project')
+
+        # Verify project exists and user owns it
+        project, error = _verify_project_access(project_id)
+        if error:
+            return error
         
         # Update file's project_id
         reference_file.project_id = project_id
@@ -405,6 +433,7 @@ def associate_file_to_project(file_id):
 
 
 @reference_file_bp.route('/<file_id>/dissociate', methods=['POST'])
+@login_required
 def dissociate_file_from_project(file_id):
     """
     POST /api/reference-files/<file_id>/dissociate - Remove a reference file from its project

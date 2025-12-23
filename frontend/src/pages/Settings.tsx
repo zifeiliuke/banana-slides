@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Home, Key, Image, Zap, Save, RotateCcw, Globe, FileText } from 'lucide-react';
 import { Button, Input, Card, Loading, useToast, useConfirm } from '@/components/shared';
+import { UserMenu } from '@/components/auth';
 import * as api from '@/api/endpoints';
 import type { OutputLanguage } from '@/api/endpoints';
 import { OUTPUT_LANGUAGE_OPTIONS } from '@/api/endpoints';
@@ -432,6 +433,7 @@ export const Settings: React.FC = () => {
                   </p>
                 </div>
               </div>
+              <UserMenu />
             </div>
 
             {/* 配置区块（配置驱动） */}

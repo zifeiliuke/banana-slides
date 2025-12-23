@@ -8,6 +8,7 @@ from models import db, Project, Page, Task, ReferenceFile
 from utils import success_response, error_response, not_found, bad_request
 from services import AIService, ProjectContext
 from services.task_manager import task_manager, generate_descriptions_task, generate_images_task
+from middleware import login_required, get_current_user
 import json
 import traceback
 from datetime import datetime
@@ -103,26 +104,29 @@ def _reconstruct_outline_from_pages(pages: list) -> list:
 
 
 @project_bp.route('', methods=['GET'])
+@login_required
 def list_projects():
     """
-    GET /api/projects - Get all projects (for history)
-    
+    GET /api/projects - Get all projects for current user (for history)
+
     Query params:
     - limit: number of projects to return (default: 50)
     - offset: offset for pagination (default: 0)
     """
     try:
         from sqlalchemy import desc
-        
+
+        current_user = get_current_user()
         limit = request.args.get('limit', 50, type=int)
         offset = request.args.get('offset', 0, type=int)
-        
-        # Get projects ordered by updated_at descending
-        projects = Project.query.order_by(desc(Project.updated_at)).limit(limit).offset(offset).all()
-        
+
+        # Get projects for current user ordered by updated_at descending
+        query = Project.query.filter_by(user_id=current_user.id)
+        projects = query.order_by(desc(Project.updated_at)).limit(limit).offset(offset).all()
+
         return success_response({
             'projects': [project.to_dict(include_pages=True) for project in projects],
-            'total': Project.query.count()
+            'total': query.count()
         })
     
     except Exception as e:
@@ -131,10 +135,11 @@ def list_projects():
 
 
 @project_bp.route('', methods=['POST'])
+@login_required
 def create_project():
     """
     POST /api/projects - Create a new project
-    
+
     Request body:
     {
         "creation_type": "idea|outline|descriptions",
@@ -145,22 +150,24 @@ def create_project():
     }
     """
     try:
+        current_user = get_current_user()
         data = request.get_json()
-        
+
         if not data:
             return bad_request("Request body is required")
-        
+
         # creation_type is required
         if 'creation_type' not in data:
             return bad_request("creation_type is required")
-        
+
         creation_type = data.get('creation_type')
-        
+
         if creation_type not in ['idea', 'outline', 'descriptions']:
             return bad_request("Invalid creation_type")
-        
-        # Create project
+
+        # Create project with user_id
         project = Project(
+            user_id=current_user.id,
             creation_type=creation_type,
             idea_prompt=data.get('idea_prompt'),
             outline_text=data.get('outline_text'),
@@ -191,16 +198,18 @@ def create_project():
 
 
 @project_bp.route('/<project_id>', methods=['GET'])
+@login_required
 def get_project(project_id):
     """
     GET /api/projects/{project_id} - Get project details
     """
     try:
-        project = Project.query.get(project_id)
-        
+        current_user = get_current_user()
+        project = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
+
         if not project:
             return not_found('Project')
-        
+
         return success_response(project.to_dict(include_pages=True))
     
     except Exception as e:
@@ -209,10 +218,11 @@ def get_project(project_id):
 
 
 @project_bp.route('/<project_id>', methods=['PUT'])
+@login_required
 def update_project(project_id):
     """
     PUT /api/projects/{project_id} - Update project
-    
+
     Request body:
     {
         "idea_prompt": "...",
@@ -220,8 +230,9 @@ def update_project(project_id):
     }
     """
     try:
-        project = Project.query.get(project_id)
-        
+        current_user = get_current_user()
+        project = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
+
         if not project:
             return not_found('Project')
         
@@ -255,13 +266,15 @@ def update_project(project_id):
 
 
 @project_bp.route('/<project_id>', methods=['DELETE'])
+@login_required
 def delete_project(project_id):
     """
     DELETE /api/projects/{project_id} - Delete project
     """
     try:
-        project = Project.query.get(project_id)
-        
+        current_user = get_current_user()
+        project = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
+
         if not project:
             return not_found('Project')
         
@@ -283,13 +296,14 @@ def delete_project(project_id):
 
 
 @project_bp.route('/<project_id>/generate/outline', methods=['POST'])
+@login_required
 def generate_outline(project_id):
     """
     POST /api/projects/{project_id}/generate/outline - Generate outline
-    
+
     For 'idea' type: Generate outline from idea_prompt
     For 'outline' type: Parse outline_text into structured format
-    
+
     Request body (optional):
     {
         "idea_prompt": "...",  # for idea type
@@ -297,8 +311,9 @@ def generate_outline(project_id):
     }
     """
     try:
-        project = Project.query.get(project_id)
-        
+        current_user = get_current_user()
+        project = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
+
         if not project:
             return not_found('Project')
         
@@ -388,26 +403,28 @@ def generate_outline(project_id):
 
 
 @project_bp.route('/<project_id>/generate/from-description', methods=['POST'])
+@login_required
 def generate_from_description(project_id):
     """
     POST /api/projects/{project_id}/generate/from-description - Generate outline and page descriptions from description text
-    
+
     This endpoint:
     1. Parses the description_text to extract outline structure
     2. Splits the description_text into individual page descriptions
     3. Creates pages with both outline and description content filled
     4. Sets project status to DESCRIPTIONS_GENERATED
-    
+
     Request body (optional):
     {
         "description_text": "...",  # if not provided, uses project.description_text
         "language": "zh"  # output language: zh, en, ja, auto
     }
     """
-    
+
     try:
-        project = Project.query.get(project_id)
-        
+        current_user = get_current_user()
+        project = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
+
         if not project:
             return not_found('Project')
         
@@ -505,10 +522,11 @@ def generate_from_description(project_id):
 
 
 @project_bp.route('/<project_id>/generate/descriptions', methods=['POST'])
+@login_required
 def generate_descriptions(project_id):
     """
     POST /api/projects/{project_id}/generate/descriptions - Generate descriptions
-    
+
     Request body:
     {
         "max_workers": 5,
@@ -516,8 +534,9 @@ def generate_descriptions(project_id):
     }
     """
     try:
-        project = Project.query.get(project_id)
-        
+        current_user = get_current_user()
+        project = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
+
         if not project:
             return not_found('Project')
         
@@ -596,10 +615,11 @@ def generate_descriptions(project_id):
 
 
 @project_bp.route('/<project_id>/generate/images', methods=['POST'])
+@login_required
 def generate_images(project_id):
     """
     POST /api/projects/{project_id}/generate/images - Generate images
-    
+
     Request body:
     {
         "max_workers": 8,
@@ -608,8 +628,9 @@ def generate_images(project_id):
     }
     """
     try:
-        project = Project.query.get(project_id)
-        
+        current_user = get_current_user()
+        project = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
+
         if not project:
             return not_found('Project')
         
@@ -692,13 +713,20 @@ def generate_images(project_id):
 
 
 @project_bp.route('/<project_id>/tasks/<task_id>', methods=['GET'])
+@login_required
 def get_task_status(project_id, task_id):
     """
     GET /api/projects/{project_id}/tasks/{task_id} - Get task status
     """
     try:
+        current_user = get_current_user()
+        # Verify project belongs to user
+        project = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
+        if not project:
+            return not_found('Project')
+
         task = Task.query.get(task_id)
-        
+
         if not task or task.project_id != project_id:
             return not_found('Task')
         
@@ -710,10 +738,11 @@ def get_task_status(project_id, task_id):
 
 
 @project_bp.route('/<project_id>/refine/outline', methods=['POST'])
+@login_required
 def refine_outline(project_id):
     """
     POST /api/projects/{project_id}/refine/outline - Refine outline based on user requirements
-    
+
     Request body:
     {
         "user_requirement": "用户要求，例如：增加一页关于XXX的内容",
@@ -721,8 +750,9 @@ def refine_outline(project_id):
     }
     """
     try:
-        project = Project.query.get(project_id)
-        
+        current_user = get_current_user()
+        project = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
+
         if not project:
             return not_found('Project')
         
@@ -864,10 +894,11 @@ def refine_outline(project_id):
 
 
 @project_bp.route('/<project_id>/refine/descriptions', methods=['POST'])
+@login_required
 def refine_descriptions(project_id):
     """
     POST /api/projects/{project_id}/refine/descriptions - Refine page descriptions based on user requirements
-    
+
     Request body:
     {
         "user_requirement": "用户要求，例如：让描述更详细一些",
@@ -875,8 +906,9 @@ def refine_descriptions(project_id):
     }
     """
     try:
-        project = Project.query.get(project_id)
-        
+        current_user = get_current_user()
+        project = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
+
         if not project:
             return not_found('Project')
         

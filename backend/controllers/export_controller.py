@@ -1,21 +1,29 @@
 """
 Export Controller - handles file export endpoints
 """
+import os
 from flask import Blueprint, request, current_app
 from models import db, Project, Page
 from utils import error_response, not_found, bad_request, success_response
 from services import ExportService, FileService
-import os
-import io
+from middleware import login_required, get_current_user
 
 export_bp = Blueprint('export', __name__, url_prefix='/api/projects')
 
 
+def _verify_project_access(project_id):
+    """Helper to verify user has access to project"""
+    current_user = get_current_user()
+    project = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
+    return project
+
+
 @export_bp.route('/<project_id>/export/pptx', methods=['GET'])
+@login_required
 def export_pptx(project_id):
     """
     GET /api/projects/{project_id}/export/pptx?filename=... - Export PPTX
-    
+
     Returns:
         JSON with download URL, e.g.
         {
@@ -27,33 +35,31 @@ def export_pptx(project_id):
         }
     """
     try:
-        project = Project.query.get(project_id)
-        
+        project = _verify_project_access(project_id)
         if not project:
             return not_found('Project')
-        
+
         # Get all completed pages
         pages = Page.query.filter_by(project_id=project_id).order_by(Page.order_index).all()
-        
+
         if not pages:
             return bad_request("No pages found for project")
-        
+
         # Get image paths
         file_service = FileService(current_app.config['UPLOAD_FOLDER'])
-        
+
         image_paths = []
         for page in pages:
             if page.generated_image_path:
                 abs_path = file_service.get_absolute_path(page.generated_image_path)
                 image_paths.append(abs_path)
-        
+
         if not image_paths:
             return bad_request("No generated images found for project")
-        
+
         # Determine export directory and filename
-        file_service = FileService(current_app.config['UPLOAD_FOLDER'])
         exports_dir = file_service._get_exports_dir(project_id)
-        
+
         # Get filename from query params or use default
         filename = request.args.get('filename', f'presentation_{project_id}.pptx')
         if not filename.endswith('.pptx'):
@@ -76,16 +82,17 @@ def export_pptx(project_id):
             },
             message="Export PPTX task created"
         )
-    
+
     except Exception as e:
         return error_response('SERVER_ERROR', str(e), 500)
 
 
 @export_bp.route('/<project_id>/export/pdf', methods=['GET'])
+@login_required
 def export_pdf(project_id):
     """
     GET /api/projects/{project_id}/export/pdf?filename=... - Export PDF
-    
+
     Returns:
         JSON with download URL, e.g.
         {
@@ -97,31 +104,29 @@ def export_pdf(project_id):
         }
     """
     try:
-        project = Project.query.get(project_id)
-        
+        project = _verify_project_access(project_id)
         if not project:
             return not_found('Project')
-        
+
         # Get all completed pages
         pages = Page.query.filter_by(project_id=project_id).order_by(Page.order_index).all()
-        
+
         if not pages:
             return bad_request("No pages found for project")
-        
+
         # Get image paths
         file_service = FileService(current_app.config['UPLOAD_FOLDER'])
-        
+
         image_paths = []
         for page in pages:
             if page.generated_image_path:
                 abs_path = file_service.get_absolute_path(page.generated_image_path)
                 image_paths.append(abs_path)
-        
+
         if not image_paths:
             return bad_request("No generated images found for project")
-        
+
         # Determine export directory and filename
-        file_service = FileService(current_app.config['UPLOAD_FOLDER'])
         exports_dir = file_service._get_exports_dir(project_id)
 
         # Get filename from query params or use default
@@ -146,7 +151,6 @@ def export_pdf(project_id):
             },
             message="Export PDF task created"
         )
-    
+
     except Exception as e:
         return error_response('SERVER_ERROR', str(e), 500)
-

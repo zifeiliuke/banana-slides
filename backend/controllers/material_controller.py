@@ -6,6 +6,7 @@ from models import db, Project, Material, Task
 from utils import success_response, error_response, not_found, bad_request
 from services import AIService, FileService
 from services.task_manager import task_manager, generate_material_image_task
+from middleware import login_required, get_current_user
 from pathlib import Path
 from werkzeug.utils import secure_filename
 from typing import Optional
@@ -20,16 +21,37 @@ material_global_bp = Blueprint('materials_global', __name__, url_prefix='/api/ma
 ALLOWED_MATERIAL_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'}
 
 
+def _verify_project_access(project_id):
+    """Helper to verify user has access to project"""
+    if project_id is None or project_id == 'none':
+        return None, None  # Global materials allowed
+    current_user = get_current_user()
+    project = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
+    if not project:
+        return None, not_found('Project')
+    return project, None
+
+
 def _build_material_query(filter_project_id: str):
-    """Build common material query with project validation."""
+    """Build common material query with project validation and user filtering."""
+    current_user = get_current_user()
     query = Material.query
 
     if filter_project_id == 'all':
+        # Get all materials: user's project materials + global materials
+        user_project_ids = [p.id for p in Project.query.filter_by(user_id=current_user.id).all()]
+        query = query.filter(
+            db.or_(
+                Material.project_id.in_(user_project_ids),
+                Material.project_id.is_(None)
+            )
+        )
         return query, None
     if filter_project_id == 'none':
         return query.filter(Material.project_id.is_(None)), None
 
-    project = Project.query.get(filter_project_id)
+    # Verify user owns this project
+    project = Project.query.filter_by(id=filter_project_id, user_id=current_user.id).first()
     if not project:
         return None, not_found('Project')
 
@@ -76,7 +98,7 @@ def _handle_material_upload(default_project_id: Optional[str] = None):
 
 def _resolve_target_project_id(raw_project_id: Optional[str], allow_none: bool = True):
     """
-    Normalize project_id from request.
+    Normalize project_id from request and verify user access.
     Returns (project_id | None, error_response | None)
     """
     if allow_none and (raw_project_id is None or raw_project_id == 'none'):
@@ -86,7 +108,8 @@ def _resolve_target_project_id(raw_project_id: Optional[str], allow_none: bool =
         return None, bad_request("project_id cannot be 'all' when uploading materials")
 
     if raw_project_id:
-        project = Project.query.get(raw_project_id)
+        current_user = get_current_user()
+        project = Project.query.filter_by(id=raw_project_id, user_id=current_user.id).first()
         if not project:
             return None, not_found('Project')
 
@@ -140,6 +163,7 @@ def _save_material_file(file, target_project_id: Optional[str]):
 
 
 @material_bp.route('/<project_id>/materials/generate', methods=['POST'])
+@login_required
 def generate_material_image(project_id):
     """
     POST /api/projects/{project_id}/materials/generate - Generate a standalone material image
@@ -154,9 +178,9 @@ def generate_material_image(project_id):
     try:
         # 支持 'none' 作为特殊值，表示生成全局素材
         if project_id != 'none':
-            project = Project.query.get(project_id)
-            if not project:
-                return not_found('Project')
+            project, error = _verify_project_access(project_id)
+            if error:
+                return error
         else:
             project = None
             project_id = None  # 设置为None表示全局素材
@@ -182,7 +206,8 @@ def generate_material_image(project_id):
         
         # 验证project_id（如果不是'global'）
         if task_project_id != 'global':
-            project = Project.query.get(task_project_id)
+            current_user = get_current_user()
+            project = Project.query.filter_by(id=task_project_id, user_id=current_user.id).first()
             if not project:
                 return not_found('Project')
 
@@ -266,6 +291,7 @@ def generate_material_image(project_id):
 
 
 @material_bp.route('/<project_id>/materials', methods=['GET'])
+@login_required
 def list_materials(project_id):
     """
     GET /api/projects/{project_id}/materials - List materials for a specific project
@@ -288,6 +314,7 @@ def list_materials(project_id):
 
 
 @material_bp.route('/<project_id>/materials/upload', methods=['POST'])
+@login_required
 def upload_material(project_id):
     """
     POST /api/projects/{project_id}/materials/upload - Upload a material image
@@ -303,6 +330,7 @@ def upload_material(project_id):
 
 
 @material_global_bp.route('', methods=['GET'])
+@login_required
 def list_all_materials():
     """
     GET /api/materials - Global materials endpoint for complex queries
@@ -332,6 +360,7 @@ def list_all_materials():
 
 
 @material_global_bp.route('/upload', methods=['POST'])
+@login_required
 def upload_material_global():
     """
     POST /api/materials/upload - Upload a material image (global, not bound to a project)
@@ -347,6 +376,7 @@ def upload_material_global():
 
 
 @material_global_bp.route('/<material_id>', methods=['DELETE'])
+@login_required
 def delete_material(material_id):
     """
     DELETE /api/materials/{material_id} - Delete a material and its file
@@ -378,6 +408,7 @@ def delete_material(material_id):
 
 
 @material_global_bp.route('/associate', methods=['POST'])
+@login_required
 def associate_materials_to_project():
     """
     POST /api/materials/associate - Associate materials to a project by URLs
@@ -398,12 +429,13 @@ def associate_materials_to_project():
         
         if not project_id:
             return bad_request("project_id is required")
-        
+
         if not material_urls or not isinstance(material_urls, list):
             return bad_request("material_urls must be a non-empty array")
-        
-        # Validate project exists
-        project = Project.query.get(project_id)
+
+        # Validate project exists and user owns it
+        current_user = get_current_user()
+        project = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
         if not project:
             return not_found('Project')
         
