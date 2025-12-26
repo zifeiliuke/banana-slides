@@ -6,6 +6,10 @@ ARG PYPI_INDEX_URL=
 # 使用 Python 3.10 作为基础镜像
 FROM ${DOCKER_REGISTRY:-}python:3.10-slim
 
+# 重新声明ARG（FROM之后ARG作用域失效，需要重新声明）
+ARG APT_MIRROR=
+ARG PYPI_INDEX_URL=
+
 # 设置工作目录
 WORKDIR /app
 

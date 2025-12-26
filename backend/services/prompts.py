@@ -704,3 +704,24 @@ You are a helpful assistant that modifies PPT page descriptions based on user re
     final_prompt = files_xml + prompt
     logger.debug(f"[get_descriptions_refinement_prompt] Final prompt:\n{final_prompt}")
     return final_prompt
+
+
+def get_clean_background_prompt() -> str:
+    """
+    生成纯背景图的 prompt（去除文字和插画）
+    用于从完整的PPT页面中提取纯背景
+    """
+    prompt = """\
+<foreground_erasure_task>
+  <role>你是一位专业的图片前景擦除专家。你的任务是：从原始图片中移除文字和配图，输出一张无任何文字内容、干净纯净的背景模板图。</role>
+  <requirements>
+    - 彻底移除页面中的所有文字、插画、图表。必须确保所有文字都被完全去除。
+    - 保持原背景设计的完整性（包括渐变、纹理、图案、线条、色块等）。保留原图的文本框色块。
+    - 对于被前景元素遮挡的背景区域，要智能填补，使背景保持无缝和完整。
+    - 输出图片的尺寸、风格、配色必须和原图完全一致。
+    - 请勿新增任何元素。
+  </requirements>
+</foreground_erasure_task>
+"""
+    logger.debug(f"[get_clean_background_prompt] Final prompt:\n{prompt}")
+    return prompt

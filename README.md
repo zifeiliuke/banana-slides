@@ -111,6 +111,15 @@
 <img width="1000" alt="image" src="https://github.com/user-attachments/assets/3e54bbba-88be-4f69-90a1-02e875c25420" />
 <img width="1748" height="538" alt="PPT与PDF导出" src="https://github.com/user-attachments/assets/647eb9b1-d0b6-42cb-a898-378ebe06c984" />
 
+### 5. 可编辑组件pptx导出（Beta迭代中）
+- **智能递归进行组件分析提取、文字提取、表格提取，最终得到可手动编辑的pptx**
+<img width="1000"  alt="image" src="https://github.com/user-attachments/assets/a85d2d48-1966-4800-a4bf-73d17f914062" />
+
+
+## 🔥 近期更新
+- 【12-25】: https://github.com/Anionex/banana-slides/pull/82 支持了基于版面识别、局部重绘和递归分析的可编辑pptx导出方法，开发者可切换至该分支提前尝鲜⛱️
+- 【12-24】: main分支加入了基于nano-banana-pro背景提取的可编辑pptx导出方法（目前Beta）
+
 
 ## 🗺️ 开发计划
 
@@ -123,6 +132,7 @@
 | ✅ 已完成 | 素材模块: 素材生成、上传等 |
 | ✅ 已完成 | 支持多种文件的上传+解析 |
 | ✅ 已完成 | 支持Vibe口头调整大纲和描述 |
+| ✅ 已完成 | 支持初步可编辑版pptx文件导出（mineru） |
 | 🔄 进行中 | 支持已生成图片的元素分割和进一步编辑（segment + inpaint） |
 | 🔄 进行中 | 网络搜索 |
 | 🔄 进行中 | Agent 模式 |
@@ -183,8 +193,8 @@ OPENAI_API_BASE=https://api.openai.com/v1
 docker compose up -d
 ```
 
-> [!WARNING]
-> 如遇网络问题，可在 `.env` 文件中取消镜像源配置的注释：
+> [!TIP]
+> 如遇网络问题，可在 `.env` 文件中取消镜像源配置的注释, 再重新运行启动命令：
 > ```env
 > # 在 .env 文件中取消以下注释即可使用国内镜像源
 > DOCKER_REGISTRY=docker.1ms.run/
@@ -193,8 +203,6 @@ docker compose up -d
 > PYPI_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple
 > NPM_REGISTRY=https://registry.npmmirror.com/
 > ```
-
-</blockquote>
 
 
 3. **访问应用**
@@ -450,6 +458,25 @@ banana-slides/
 └── README.md                   # 本文件
 ```
 
+## 交流群
+为了方便大家沟通互助，建此微信交流群.
+
+欢迎提出新功能建议或反馈，本人也会~~佛系~~回答大家问题
+
+<img width="300"  alt="image" src="https://github.com/user-attachments/assets/0d4eb8cd-2c95-4f1c-aca2-2a656e6601a4" />
+
+**常见问题**
+1.  **支持免费层级的 Gemini API Key 吗？**
+    *   免费层级只支持文本生成，不支持图片生成。
+2.  **生成内容时提示 503 错误**
+    *   可以根据 README 中的命令查看 Docker 内部日志，定位 503 问题的详细报错，一般是模型配置不正确导致。
+3.  **.env 中设置了 API Key 之后，为什么不生效？**
+    1.  运行时编辑.env需要重启 Docker 容器以应用更改。
+    2.  如果曾在网页设置页中设置，会覆盖 `.env` 中参数，可通过“还原默认设置”还原到 `.env`。
+4.  **生成页面文字有乱码**
+    *   可以尝试更高分辨率的输出（openai格式可能不支持调高分辨率）
+    *   确保在页面描述中包含具体要渲染的文字内容
+  
 
 ## 🤝 贡献指南
 
@@ -499,6 +526,27 @@ banana-slides/
 <p>感谢AIHubMix对本项目的赞助</p>
 </div>
 
+## 致谢
+
+- 项目贡献者们：
+
+[![Contributors](https://contrib.rocks/image?repo=Anionex/banana-slides)](https://github.com/Anionex/banana-slides/graphs/contributors)
+
+- [Linux.do](https://linux.do/): 新的理想型社区
+  
+## 赞赏
+
+开源不易🙏如果本项目对你有价值，欢迎请开发者喝杯咖啡☕️
+
+<img width="240" alt="image" src="https://github.com/user-attachments/assets/fd7a286d-711b-445e-aecf-43e3fe356473" />
+
+- 感谢以下朋友对项目的无偿赞助支持：
+> - 来自 @曹峥 的 ￥100
+> - 来自 @azazo1 的 ￥50
+> - 来自 @🍟 的 ￥20
+> - 来自 @苍何 的 ￥10
+- 如对赞助列表有疑问（如赞赏后没看到您的名字），可<a href="mailto:anionex@qq.com">联系作者</a>
+ 
 ## 📈 项目统计
 
 <a href="https://www.star-history.com/#Anionex/banana-slides&type=Timeline&legend=top-left">

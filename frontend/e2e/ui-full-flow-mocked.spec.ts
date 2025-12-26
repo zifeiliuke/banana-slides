@@ -80,7 +80,7 @@ test.describe('UI-driven E2E test (Mocked Backend)', () => {
     // Mock description generation
     await page.route('**/api/projects/*/generate/descriptions', async (route) => {
       await route.fulfill({
-        status: 200,
+        status: 202,  // 202 Accepted for async operations
         contentType: 'application/json',
         body: JSON.stringify({
           success: true,
@@ -92,7 +92,7 @@ test.describe('UI-driven E2E test (Mocked Backend)', () => {
     // Mock image generation
     await page.route('**/api/projects/*/generate/images', async (route) => {
       await route.fulfill({
-        status: 200,
+        status: 202,  // 202 Accepted for async operations
         contentType: 'application/json',
         body: JSON.stringify({
           success: true,
@@ -137,10 +137,13 @@ test.describe('UI-driven E2E test (Mocked Backend)', () => {
     console.log('✓ Homepage loaded successfully\n')
     
     // ====================================
-    // Step 2: Click "Create from idea"
+    // Step 2: Ensure "一句话生成" tab is selected (it's selected by default)
     // ====================================
-    console.log('🖱️  Step 2: Clicking "Create from idea"...')
-    await page.click('text=/从想法创建/i')
+    console.log('🖱️  Step 2: Ensuring "一句话生成" tab is selected...')
+    // The "一句话生成" tab is selected by default, but we can click it to ensure it's active
+    await page.click('button:has-text("一句话生成")').catch(() => {
+      // If click fails, the tab might already be selected, which is fine
+    })
     await page.waitForSelector('textarea, input[type="text"]', { timeout: 10000 })
     console.log('✓ Create form displayed\n')
     
