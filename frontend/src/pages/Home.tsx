@@ -453,7 +453,7 @@ export const Home: React.FC = () => {
       </div>
 
       {/* 导航栏 */}
-      <nav className="relative h-16 md:h-18 bg-white/40 backdrop-blur-2xl">
+      <nav className="relative z-50 h-16 md:h-18 bg-white/40 backdrop-blur-2xl">
 
         <div className="max-w-7xl mx-auto px-4 md:px-6 h-full flex items-center justify-between">
           <div className="flex items-center gap-3">

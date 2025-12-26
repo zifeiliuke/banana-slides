@@ -67,6 +67,11 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
 
+      // 如果已经在登录页面，不要再重定向
+      if (window.location.pathname === '/login') {
+        return Promise.reject(error);
+      }
+
       // 尝试刷新 token
       const refreshToken = getRefreshToken();
       if (refreshToken) {
@@ -76,8 +81,9 @@ apiClient.interceptors.response.use(
           });
 
           if (response.data.success) {
-            const { access_token, refresh_token } = response.data.data;
-            setTokens(access_token, refresh_token);
+            const { access_token } = response.data.data;
+            // refresh endpoint 只返回新的 access_token，保留原来的 refresh_token
+            setTokens(access_token, refreshToken);
 
             // 重试原请求
             originalRequest.headers['Authorization'] = `Bearer ${access_token}`;
@@ -86,12 +92,16 @@ apiClient.interceptors.response.use(
         } catch (refreshError) {
           // 刷新失败，清除 token 并跳转到登录页
           clearTokens();
-          window.location.href = '/login';
+          if (window.location.pathname !== '/login') {
+            window.location.href = '/login';
+          }
           return Promise.reject(refreshError);
         }
-      } else {
-        // 没有 refresh token，跳转到登录页
-        clearTokens();
+      }
+
+      // 没有 refresh token 或刷新失败，清除 token 并跳转到登录页
+      clearTokens();
+      if (window.location.pathname !== '/login') {
         window.location.href = '/login';
       }
     }

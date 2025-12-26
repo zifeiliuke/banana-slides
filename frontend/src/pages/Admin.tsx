@@ -133,47 +133,51 @@ export const Admin: React.FC = () => {
   };
 
   const handleRevokePremium = async (targetUser: User) => {
-    const confirmed = await confirm({
-      title: '撤销会员',
-      message: `确定要撤销用户 ${targetUser.username} 的会员资格吗？`,
-      confirmText: '确定撤销',
-      cancelText: '取消',
-    });
-
-    if (!confirmed) return;
-
-    try {
-      const response = await api.adminRevokePremium(targetUser.id);
-      if (response.success) {
-        show({ message: response.data?.message || '操作成功', type: 'success' });
-        loadUsers();
-        loadStats();
+    confirm(
+      `确定要撤销用户 ${targetUser.username} 的会员资格吗？`,
+      async () => {
+        try {
+          const response = await api.adminRevokePremium(targetUser.id);
+          if (response.success) {
+            show({ message: response.data?.message || '操作成功', type: 'success' });
+            loadUsers();
+            loadStats();
+          }
+        } catch (err) {
+          show({ message: '操作失败', type: 'error' });
+        }
+      },
+      {
+        title: '撤销会员',
+        confirmText: '确定撤销',
+        cancelText: '取消',
+        variant: 'danger',
       }
-    } catch (err) {
-      show({ message: '操作失败', type: 'error' });
-    }
+    );
   };
 
   const handleToggleActive = async (targetUser: User) => {
     const action = targetUser.is_active ? '禁用' : '启用';
-    const confirmed = await confirm({
-      title: `${action}用户`,
-      message: `确定要${action}用户 ${targetUser.username} 吗？`,
-      confirmText: `确定${action}`,
-      cancelText: '取消',
-    });
-
-    if (!confirmed) return;
-
-    try {
-      const response = await api.adminToggleUserActive(targetUser.id);
-      if (response.success) {
-        show({ message: response.data?.message || '操作成功', type: 'success' });
-        loadUsers();
+    confirm(
+      `确定要${action}用户 ${targetUser.username} 吗？`,
+      async () => {
+        try {
+          const response = await api.adminToggleUserActive(targetUser.id);
+          if (response.success) {
+            show({ message: response.data?.message || '操作成功', type: 'success' });
+            loadUsers();
+          }
+        } catch (err) {
+          show({ message: '操作失败', type: 'error' });
+        }
+      },
+      {
+        title: `${action}用户`,
+        confirmText: `确定${action}`,
+        cancelText: '取消',
+        variant: action === '禁用' ? 'danger' : 'warning',
       }
-    } catch (err) {
-      show({ message: '操作失败', type: 'error' });
-    }
+    );
   };
 
   const handleCreateCodes = async () => {
@@ -207,25 +211,27 @@ export const Admin: React.FC = () => {
       return;
     }
 
-    const confirmed = await confirm({
-      title: '删除充值码',
-      message: `确定要删除充值码 ${code.code} 吗？`,
-      confirmText: '确定删除',
-      cancelText: '取消',
-    });
-
-    if (!confirmed) return;
-
-    try {
-      const response = await api.adminDeleteRechargeCode(code.id);
-      if (response.success) {
-        show({ message: '删除成功', type: 'success' });
-        loadCodes();
-        loadStats();
+    confirm(
+      `确定要删除充值码 ${code.code} 吗？`,
+      async () => {
+        try {
+          const response = await api.adminDeleteRechargeCode(code.id);
+          if (response.success) {
+            show({ message: '删除成功', type: 'success' });
+            loadCodes();
+            loadStats();
+          }
+        } catch (err) {
+          show({ message: '删除失败', type: 'error' });
+        }
+      },
+      {
+        title: '删除充值码',
+        confirmText: '确定删除',
+        cancelText: '取消',
+        variant: 'danger',
       }
-    } catch (err) {
-      show({ message: '删除失败', type: 'error' });
-    }
+    );
   };
 
   const copyToClipboard = (text: string) => {

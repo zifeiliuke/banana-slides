@@ -11,6 +11,7 @@ interface AuthState {
 
   // Actions
   setUser: (user: User | null) => void;
+  updateUser: (updates: Partial<User>) => void;
   setError: (error: string | null) => void;
   setLoading: (loading: boolean) => void;
 
@@ -31,6 +32,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   // 基础操作
   setUser: (user) => set({ user, isAuthenticated: !!user }),
+  updateUser: (updates) => set((state) => ({
+    user: state.user ? { ...state.user, ...updates } : null
+  })),
   setError: (error) => set({ error }),
   setLoading: (loading) => set({ isLoading: loading }),
 

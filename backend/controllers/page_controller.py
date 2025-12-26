@@ -11,7 +11,7 @@ from flask import Blueprint, request, current_app
 from werkzeug.utils import secure_filename
 from models import db, Project, Page, PageImageVersion, Task
 from utils import success_response, error_response, not_found, bad_request
-from services import AIService, FileService, ProjectContext
+from services import AIService, FileService, ProjectContext, get_ai_service_for_user
 from services.task_manager import task_manager, generate_single_page_image_task, edit_page_image_task
 from middleware import login_required, get_current_user
 
@@ -243,8 +243,9 @@ def generate_page_description(project_id, page_id):
                     page_data['part'] = p.part
                 outline.append(page_data)
 
-        # Initialize AI service
-        ai_service = AIService()
+        # Initialize AI service for user
+        current_user = get_current_user()
+        ai_service = get_ai_service_for_user(current_user)
 
         # Get reference files content and create project context
         from controllers.project_controller import _get_project_reference_files_content
@@ -361,8 +362,9 @@ def generate_page_image(project_id, page_id):
                 "pages": current_part_pages
             })
 
-        # Initialize services
-        ai_service = AIService()
+        # Initialize services for user
+        current_user = get_current_user()
+        ai_service = get_ai_service_for_user(current_user)
         file_service = FileService(current_app.config['UPLOAD_FOLDER'])
 
         # Get template path
@@ -448,8 +450,9 @@ def edit_page_image(project_id, page_id):
         if not page.generated_image_path:
             return bad_request("Page must have generated image first")
 
-        # Initialize services
-        ai_service = AIService()
+        # Initialize services for user
+        current_user = get_current_user()
+        ai_service = get_ai_service_for_user(current_user)
         file_service = FileService(current_app.config['UPLOAD_FOLDER'])
 
         # Parse request data (support both JSON and multipart/form-data)

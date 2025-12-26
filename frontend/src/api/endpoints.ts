@@ -1021,3 +1021,16 @@ export const adminDeleteRechargeCode = async (codeId: string): Promise<ApiRespon
   const response = await apiClient.delete(`/api/admin/recharge-codes/${codeId}`);
   return response.data;
 };
+
+// ===== 用户账户 API =====
+
+/**
+ * 修改密码
+ */
+export const changePassword = async (oldPassword: string, newPassword: string): Promise<ApiResponse<{ message: string }>> => {
+  const response = await apiClient.put('/api/auth/password', {
+    old_password: oldPassword,
+    new_password: newPassword,
+  });
+  return response.data;
+};

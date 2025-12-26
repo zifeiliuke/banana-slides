@@ -4,7 +4,7 @@ Material Controller - handles standalone material image generation
 from flask import Blueprint, request, current_app
 from models import db, Project, Material, Task
 from utils import success_response, error_response, not_found, bad_request
-from services import AIService, FileService
+from services import AIService, FileService, get_ai_service_for_user
 from services.task_manager import task_manager, generate_material_image_task
 from middleware import login_required, get_current_user
 from pathlib import Path
@@ -211,8 +211,9 @@ def generate_material_image(project_id):
             if not project:
                 return not_found('Project')
 
-        # Initialize services
-        ai_service = AIService()
+        # Initialize services for user
+        current_user = get_current_user()
+        ai_service = get_ai_service_for_user(current_user)
         file_service = FileService(current_app.config['UPLOAD_FOLDER'])
 
         # 创建临时目录保存参考图片（后台任务会清理）

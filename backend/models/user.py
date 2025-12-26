@@ -46,8 +46,9 @@ class User(db.Model):
         """Check if user has active premium subscription"""
         if self.tier != 'premium':
             return False
+        # If no expiration date, it's permanent premium (e.g., admin)
         if self.premium_expires_at is None:
-            return False
+            return True
         # Ensure timezone-aware comparison
         now = datetime.now(timezone.utc)
         expires_at = self.premium_expires_at

@@ -67,14 +67,16 @@ class ProjectContext:
 
 class AIService:
     """Service for AI model interactions using pluggable providers"""
-    
-    def __init__(self, text_provider: TextProvider = None, image_provider: ImageProvider = None):
+
+    def __init__(self, text_provider: TextProvider = None, image_provider: ImageProvider = None, config_override: dict = None):
         """
         Initialize AI service with providers
-        
+
         Args:
             text_provider: Optional pre-configured TextProvider. If None, created from factory.
             image_provider: Optional pre-configured ImageProvider. If None, created from factory.
+            config_override: Optional dict to override API configuration (for user-specific settings).
+                            Keys: ai_provider_format, api_key, api_base_url, text_model, image_model
         """
         config = get_config()
 
@@ -91,10 +93,17 @@ class AIService:
         else:
             self.text_model = config.TEXT_MODEL
             self.image_model = config.IMAGE_MODEL
-        
+
+        # If config_override specifies models, use them
+        if config_override:
+            if config_override.get('text_model'):
+                self.text_model = config_override['text_model']
+            if config_override.get('image_model'):
+                self.image_model = config_override['image_model']
+
         # Use provided providers or create from factory based on AI_PROVIDER_FORMAT (from Flask config or env var)
-        self.text_provider = text_provider or get_text_provider(model=self.text_model)
-        self.image_provider = image_provider or get_image_provider(model=self.image_model)
+        self.text_provider = text_provider or get_text_provider(model=self.text_model, config_override=config_override)
+        self.image_provider = image_provider or get_image_provider(model=self.image_model, config_override=config_override)
     
     @staticmethod
     def extract_image_urls_from_markdown(text: str) -> List[str]:
@@ -555,10 +564,50 @@ class AIService:
             language=language
         )
         descriptions = self.generate_json(refinement_prompt, thinking_budget=1000)
-        
+
         # 确保返回的是字符串列表
         if isinstance(descriptions, list):
             return [str(desc) for desc in descriptions]
         else:
             raise ValueError("Expected a list of page descriptions, but got: " + str(type(descriptions)))
+
+
+def get_ai_service_for_user(user) -> AIService:
+    """
+    Get an AIService instance configured for the specific user based on their tier.
+
+    - Premium users: Use global Settings (admin's API key)
+    - Free users: Must use their own UserSettings API key
+
+    Args:
+        user: User model instance (must have is_premium_active() method)
+
+    Returns:
+        AIService instance configured with appropriate API settings
+
+    Raises:
+        ValueError: If free user hasn't configured their own API key
+    """
+    from models import UserSettings
+
+    # Check if user is premium
+    if user.is_premium_active():
+        # Premium user: use global Settings (default behavior)
+        logger.info(f"User {user.username} is premium, using global Settings")
+        return AIService()
+
+    # Free user: must use their own UserSettings
+    logger.info(f"User {user.username} is free tier, checking UserSettings")
+    user_settings = UserSettings.query.filter_by(user_id=user.id).first()
+
+    if not user_settings or not user_settings.has_api_key():
+        raise ValueError(
+            "免费用户需要在账户设置中配置自己的API Key才能使用AI功能。"
+            "请前往「设置 > 账户信息」配置您的API Key，或升级到高级会员。"
+        )
+
+    # Use user's own settings
+    config_override = user_settings.to_ai_config()
+    logger.info(f"Using UserSettings for user {user.username}")
+    return AIService(config_override=config_override)
 

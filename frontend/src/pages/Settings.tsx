@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Home, Key, Image, Zap, Save, RotateCcw, Globe, FileText } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Home, Key, Image, Zap, Save, RotateCcw, Globe, FileText, User, Crown, Lock, Gift } from 'lucide-react';
 import { Button, Input, Card, Loading, useToast, useConfirm } from '@/components/shared';
 import { UserMenu } from '@/components/auth';
+import { useAuthStore } from '@/store/useAuthStore';
 import * as api from '@/api/endpoints';
 import type { OutputLanguage } from '@/api/endpoints';
 import { OUTPUT_LANGUAGE_OPTIONS } from '@/api/endpoints';
@@ -186,13 +187,48 @@ const settingsSections: SectionConfig[] = [
 
 export const Settings: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { show, ToastContainer } = useToast();
   const { confirm, ConfirmDialog } = useConfirm();
+  const { user } = useAuthStore();
 
+  const [activeTab, setActiveTab] = useState<'settings' | 'account'>(
+    searchParams.get('tab') === 'account' ? 'account' : 'settings'
+  );
   const [settings, setSettings] = useState<SettingsType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState(initialFormData);
+
+  // 密码修改表单
+  const [passwordForm, setPasswordForm] = useState({
+    old_password: '',
+    new_password: '',
+    confirm_password: '',
+  });
+
+  // 充值码兑换
+  const [redeemCode, setRedeemCode] = useState('');
+  const [isRedeeming, setIsRedeeming] = useState(false);
+
+  // 处理 URL 参数变化
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'account') {
+      setActiveTab('account');
+    } else {
+      setActiveTab('settings');
+    }
+  }, [searchParams]);
+
+  const handleTabChange = (tab: 'settings' | 'account') => {
+    setActiveTab(tab);
+    if (tab === 'account') {
+      setSearchParams({ tab: 'account' });
+    } else {
+      setSearchParams({});
+    }
+  };
 
   useEffect(() => {
     loadSettings();
@@ -307,6 +343,67 @@ export const Settings: React.FC = () => {
         variant: 'warning',
       }
     );
+  };
+
+  const handlePasswordChange = async () => {
+    if (!passwordForm.old_password || !passwordForm.new_password) {
+      show({ message: '请填写完整的密码信息', type: 'error' });
+      return;
+    }
+
+    if (passwordForm.new_password.length < 6) {
+      show({ message: '新密码长度至少6个字符', type: 'error' });
+      return;
+    }
+
+    if (passwordForm.new_password !== passwordForm.confirm_password) {
+      show({ message: '两次输入的密码不一致', type: 'error' });
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await api.changePassword(passwordForm.old_password, passwordForm.new_password);
+      show({ message: '密码修改成功', type: 'success' });
+      setPasswordForm({ old_password: '', new_password: '', confirm_password: '' });
+    } catch (error: any) {
+      show({
+        message: error?.response?.data?.error || '密码修改失败',
+        type: 'error'
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRedeemCode = async () => {
+    if (!redeemCode.trim()) {
+      show({ message: '请输入充值码', type: 'error' });
+      return;
+    }
+
+    setIsRedeeming(true);
+    try {
+      const response = await api.redeemCode(redeemCode.trim());
+      if (response.success && response.data) {
+        show({ message: response.data.message, type: 'success' });
+        setRedeemCode('');
+        // 更新用户信息
+        const { updateUser } = useAuthStore.getState();
+        updateUser({
+          tier: response.data.tier as 'free' | 'premium',
+          is_premium_active: response.data.is_premium_active,
+          premium_expires_at: response.data.premium_expires_at,
+        });
+      }
+    } catch (error: any) {
+      show({
+        message: error?.response?.data?.error?.message || error?.response?.data?.error || '兑换失败',
+        type: 'error'
+      });
+    } finally {
+      setIsRedeeming(false);
+    }
   };
 
   const handleFieldChange = (key: string, value: any) => {
@@ -427,49 +524,222 @@ export const Settings: React.FC = () => {
                   返回首页
                 </Button>
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900">系统设置</h1>
+                  <h1 className="text-2xl font-bold text-gray-900">设置</h1>
                   <p className="text-sm text-gray-500 mt-1">
-                    配置应用的各项参数
+                    管理账户和系统配置
                   </p>
                 </div>
               </div>
               <UserMenu />
             </div>
 
-            {/* 配置区块（配置驱动） */}
-            <div className="space-y-8">
-              {settingsSections.map((section) => (
-                <div key={section.title}>
-                  <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                    {section.icon}
-                    <span className="ml-2">{section.title}</span>
-                  </h2>
-                  <div className="space-y-4">
-                    {section.fields.map((field) => renderField(field))}
-                  </div>
-                </div>
-              ))}
+            {/* 标签页导航 */}
+            <div className="flex border-b border-gray-200">
+              <button
+                onClick={() => handleTabChange('settings')}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'settings'
+                    ? 'border-banana-500 text-banana-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Key size={16} className="inline mr-2" />
+                系统设置
+              </button>
+              <button
+                onClick={() => handleTabChange('account')}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'account'
+                    ? 'border-banana-500 text-banana-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <User size={16} className="inline mr-2" />
+                账户信息
+              </button>
             </div>
 
-            {/* 操作按钮 */}
-            <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-              <Button
-                variant="secondary"
-                icon={<RotateCcw size={18} />}
-                onClick={handleReset}
-                disabled={isSaving}
-              >
-                重置为默认配置
-              </Button>
-              <Button
-                variant="primary"
-                icon={<Save size={18} />}
-                onClick={handleSave}
-                loading={isSaving}
-              >
-                {isSaving ? '保存中...' : '保存设置'}
-              </Button>
-            </div>
+            {/* 系统设置内容 */}
+            {activeTab === 'settings' && (
+              <>
+                <div className="space-y-8">
+                  {settingsSections.map((section) => (
+                    <div key={section.title}>
+                      <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                        {section.icon}
+                        <span className="ml-2">{section.title}</span>
+                      </h2>
+                      <div className="space-y-4">
+                        {section.fields.map((field) => renderField(field))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 操作按钮 */}
+                <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                  <Button
+                    variant="secondary"
+                    icon={<RotateCcw size={18} />}
+                    onClick={handleReset}
+                    disabled={isSaving}
+                  >
+                    重置为默认配置
+                  </Button>
+                  <Button
+                    variant="primary"
+                    icon={<Save size={18} />}
+                    onClick={handleSave}
+                    loading={isSaving}
+                  >
+                    {isSaving ? '保存中...' : '保存设置'}
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {/* 账户信息内容 */}
+            {activeTab === 'account' && user && (
+              <div className="space-y-8">
+                {/* 用户信息 */}
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                    <User size={20} />
+                    <span className="ml-2">个人信息</span>
+                  </h2>
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">用户名</span>
+                      <span className="font-medium">{user.username}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">邮箱</span>
+                      <span className="font-medium">{user.email || '未设置'}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">角色</span>
+                      <span className="font-medium">
+                        {user.role === 'admin' ? '管理员' : '普通用户'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">注册时间</span>
+                      <span className="font-medium">
+                        {user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 会员状态 */}
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                    <Crown size={20} />
+                    <span className="ml-2">会员状态</span>
+                  </h2>
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">当前等级</span>
+                      <span className={`font-medium flex items-center gap-1 ${
+                        user.tier === 'premium' ? 'text-yellow-600' : 'text-gray-600'
+                      }`}>
+                        {user.tier === 'premium' && <Crown size={16} />}
+                        {user.tier === 'premium' ? '高级会员' : '免费用户'}
+                      </span>
+                    </div>
+                    {user.tier === 'premium' && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">到期时间</span>
+                        <span className="font-medium">
+                          {user.premium_expires_at
+                            ? new Date(user.premium_expires_at).toLocaleDateString()
+                            : '永久'}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">会员状态</span>
+                      <span className={`font-medium ${
+                        user.is_premium_active ? 'text-green-600' : 'text-gray-500'
+                      }`}>
+                        {user.is_premium_active ? '有效' : '未激活'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 修改密码 */}
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                    <Lock size={20} />
+                    <span className="ml-2">修改密码</span>
+                  </h2>
+                  <div className="space-y-4">
+                    <Input
+                      label="当前密码"
+                      type="password"
+                      placeholder="请输入当前密码"
+                      value={passwordForm.old_password}
+                      onChange={(e) => setPasswordForm(prev => ({ ...prev, old_password: e.target.value }))}
+                    />
+                    <Input
+                      label="新密码"
+                      type="password"
+                      placeholder="请输入新密码（至少6个字符）"
+                      value={passwordForm.new_password}
+                      onChange={(e) => setPasswordForm(prev => ({ ...prev, new_password: e.target.value }))}
+                    />
+                    <Input
+                      label="确认新密码"
+                      type="password"
+                      placeholder="请再次输入新密码"
+                      value={passwordForm.confirm_password}
+                      onChange={(e) => setPasswordForm(prev => ({ ...prev, confirm_password: e.target.value }))}
+                    />
+                    <div className="pt-2">
+                      <Button
+                        variant="primary"
+                        icon={<Save size={18} />}
+                        onClick={handlePasswordChange}
+                        loading={isSaving}
+                      >
+                        {isSaving ? '保存中...' : '修改密码'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 充值码兑换 */}
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                    <Gift size={20} />
+                    <span className="ml-2">充值码兑换</span>
+                  </h2>
+                  <div className="space-y-4">
+                    <Input
+                      label="充值码"
+                      type="text"
+                      placeholder="请输入充值码（如: ABCD1234EFGH5678）"
+                      value={redeemCode}
+                      onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
+                    />
+                    <p className="text-sm text-gray-500">
+                      输入有效的充值码可激活或延长您的高级会员资格
+                    </p>
+                    <div className="pt-2">
+                      <Button
+                        variant="primary"
+                        icon={<Gift size={18} />}
+                        onClick={handleRedeemCode}
+                        loading={isRedeeming}
+                      >
+                        {isRedeeming ? '兑换中...' : '立即兑换'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </Card>
       </div>

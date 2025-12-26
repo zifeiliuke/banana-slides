@@ -63,23 +63,48 @@ def get_provider_format() -> str:
     return os.getenv('AI_PROVIDER_FORMAT', 'gemini').lower()
 
 
-def _get_provider_config() -> Tuple[str, str, str]:
+def _get_provider_config(config_override: dict = None) -> Tuple[str, str, str]:
     """
     Get provider configuration based on AI_PROVIDER_FORMAT
-    
+
+    Args:
+        config_override: Optional dict to override configuration. Keys:
+            - ai_provider_format: 'gemini' or 'openai'
+            - api_key: API key
+            - api_base_url: API base URL
+
     Priority for API keys/base URLs:
-        1. Flask app.config (from database settings)
-        2. Environment variables
-        3. Default values
-    
+        1. config_override (if provided)
+        2. Flask app.config (from database settings)
+        3. Environment variables
+        4. Default values
+
     Returns:
         Tuple of (provider_format, api_key, api_base)
-        
+
     Raises:
         ValueError: If required API key is not configured
     """
+    # If config_override is provided, use it directly
+    if config_override:
+        provider_format = config_override.get('ai_provider_format', 'gemini').lower()
+        api_key = config_override.get('api_key')
+        api_base = config_override.get('api_base_url')
+
+        if not api_key:
+            raise ValueError("API key is required in user configuration")
+
+        # Set default API base if not provided
+        if not api_base:
+            if provider_format == 'openai':
+                api_base = 'https://aihubmix.com/v1'
+            # For gemini, api_base can be None (uses default)
+
+        logger.info(f"Using config override - format: {provider_format}, api_base: {api_base}, api_key: {'***' if api_key else 'None'}")
+        return provider_format, api_key, api_base
+
     provider_format = get_provider_format()
-    
+
     # Helper to get config value with priority: app.config > env var > default
     def get_config(key: str, default: str = None) -> str:
         try:
@@ -108,11 +133,11 @@ def _get_provider_config() -> Tuple[str, str, str]:
             return default
         logger.warning(f"[CONFIG] No value found for {key}, returning None")
         return None
-    
+
     if provider_format == 'openai':
         api_key = get_config('OPENAI_API_KEY') or get_config('GOOGLE_API_KEY')
         api_base = get_config('OPENAI_API_BASE', 'https://aihubmix.com/v1')
-        
+
         if not api_key:
             raise ValueError(
                 "OPENAI_API_KEY or GOOGLE_API_KEY (from database settings or environment) is required when AI_PROVIDER_FORMAT=openai."
@@ -122,27 +147,32 @@ def _get_provider_config() -> Tuple[str, str, str]:
         provider_format = 'gemini'
         api_key = get_config('GOOGLE_API_KEY')
         api_base = get_config('GOOGLE_API_BASE')
-        
+
         logger.info(f"Provider config - format: {provider_format}, api_base: {api_base}, api_key: {'***' if api_key else 'None'}")
-        
+
         if not api_key:
             raise ValueError("GOOGLE_API_KEY (from database settings or environment) is required")
-    
+
     return provider_format, api_key, api_base
 
 
-def get_text_provider(model: str = "gemini-3-flash-preview") -> TextProvider:
+def get_text_provider(model: str = "gemini-3-flash-preview", config_override: dict = None) -> TextProvider:
     """
     Factory function to get text generation provider based on configuration
-    
+
     Args:
         model: Model name to use
-        
+        config_override: Optional dict to override configuration (for user-specific settings)
+
     Returns:
         TextProvider instance (GenAITextProvider or OpenAITextProvider)
     """
-    provider_format, api_key, api_base = _get_provider_config()
-    
+    provider_format, api_key, api_base = _get_provider_config(config_override)
+
+    # If config_override specifies a model, use it
+    if config_override and config_override.get('text_model'):
+        model = config_override['text_model']
+
     if provider_format == 'openai':
         logger.info(f"Using OpenAI format for text generation, model: {model}")
         return OpenAITextProvider(api_key=api_key, api_base=api_base, model=model)
@@ -151,22 +181,27 @@ def get_text_provider(model: str = "gemini-3-flash-preview") -> TextProvider:
         return GenAITextProvider(api_key=api_key, api_base=api_base, model=model)
 
 
-def get_image_provider(model: str = "gemini-3-pro-image-preview") -> ImageProvider:
+def get_image_provider(model: str = "gemini-3-pro-image-preview", config_override: dict = None) -> ImageProvider:
     """
     Factory function to get image generation provider based on configuration
-    
+
     Args:
         model: Model name to use
-        
+        config_override: Optional dict to override configuration (for user-specific settings)
+
     Returns:
         ImageProvider instance (GenAIImageProvider or OpenAIImageProvider)
-        
+
     Note:
         OpenAI format does NOT support 4K resolution, only 1K is available.
         If you need higher resolution images, use Gemini format.
     """
-    provider_format, api_key, api_base = _get_provider_config()
-    
+    provider_format, api_key, api_base = _get_provider_config(config_override)
+
+    # If config_override specifies a model, use it
+    if config_override and config_override.get('image_model'):
+        model = config_override['image_model']
+
     if provider_format == 'openai':
         logger.info(f"Using OpenAI format for image generation, model: {model}")
         logger.warning("OpenAI format only supports 1K resolution, 4K is not available")

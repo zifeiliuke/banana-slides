@@ -6,7 +6,7 @@ from flask import Blueprint, request, jsonify, current_app
 from werkzeug.exceptions import BadRequest
 from models import db, Project, Page, Task, ReferenceFile
 from utils import success_response, error_response, not_found, bad_request
-from services import AIService, ProjectContext
+from services import AIService, ProjectContext, get_ai_service_for_user
 from services.task_manager import task_manager, generate_descriptions_task, generate_images_task
 from middleware import login_required, get_current_user
 import json
@@ -317,9 +317,9 @@ def generate_outline(project_id):
         if not project:
             return not_found('Project')
         
-        # Initialize AI service
-        ai_service = AIService()
-        
+        # Initialize AI service for user
+        ai_service = get_ai_service_for_user(current_user)
+
         # Get request data and language parameter
         data = request.get_json() or {}
         language = data.get('language', current_app.config.get('OUTPUT_LANGUAGE', 'zh'))
@@ -440,9 +440,9 @@ def generate_from_description(project_id):
             return bad_request("description_text is required")
         
         project.description_text = description_text
-        
-        # Initialize AI service
-        ai_service = AIService()
+
+        # Initialize AI service for user
+        ai_service = get_ai_service_for_user(current_user)
         
         # Get reference files content and create project context
         reference_files_content = _get_project_reference_files_content(project_id)
@@ -574,10 +574,10 @@ def generate_descriptions(project_id):
         
         db.session.add(task)
         db.session.commit()
-        
-        # Initialize AI service
-        ai_service = AIService()
-        
+
+        # Initialize AI service for user
+        ai_service = get_ai_service_for_user(current_user)
+
         # Get reference files content and create project context
         reference_files_content = _get_project_reference_files_content(project_id)
         project_context = ProjectContext(project, reference_files_content)
@@ -669,10 +669,10 @@ def generate_images(project_id):
         
         db.session.add(task)
         db.session.commit()
-        
-        # Initialize services
-        ai_service = AIService()
-        
+
+        # Initialize services for user
+        ai_service = get_ai_service_for_user(current_user)
+
         from services import FileService
         file_service = FileService(current_app.config['UPLOAD_FOLDER'])
         
@@ -776,10 +776,10 @@ def refine_outline(project_id):
             current_outline = []  # 空大纲
         else:
             current_outline = _reconstruct_outline_from_pages(pages)
-        
-        # Initialize AI service
-        ai_service = AIService()
-        
+
+        # Initialize AI service for user
+        ai_service = get_ai_service_for_user(current_user)
+
         # Get reference files content and create project context
         reference_files_content = _get_project_reference_files_content(project_id)
         if reference_files_content:
@@ -947,10 +947,10 @@ def refine_descriptions(project_id):
                 'title': outline_content.get('title', '未命名') if outline_content else '未命名',
                 'description_content': desc_content if desc_content else ''
             })
-        
-        # Initialize AI service
-        ai_service = AIService()
-        
+
+        # Initialize AI service for user
+        ai_service = get_ai_service_for_user(current_user)
+
         # Get reference files content and create project context
         reference_files_content = _get_project_reference_files_content(project_id)
         if reference_files_content:
