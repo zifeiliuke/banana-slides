@@ -5,7 +5,7 @@ import { History } from './pages/History';
 import { OutlineEditor } from './pages/OutlineEditor';
 import { DetailEditor } from './pages/DetailEditor';
 import { SlidePreview } from './pages/SlidePreview';
-import { Settings } from './pages/Settings';
+import { SettingsPage } from './pages/Settings';
 import { Login } from './pages/Login';
 import { Admin } from './pages/Admin';
 import { useProjectStore } from './store/useProjectStore';
@@ -48,7 +48,7 @@ function App() {
         {/* 受保护的路由 */}
         <Route path="/" element={<AuthGuard><Home /></AuthGuard>} />
         <Route path="/history" element={<AuthGuard><History /></AuthGuard>} />
-        <Route path="/settings" element={<AuthGuard><Settings /></AuthGuard>} />
+        <Route path="/settings" element={<AuthGuard><SettingsPage /></AuthGuard>} />
         <Route path="/admin" element={<AuthGuard requireAdmin><Admin /></AuthGuard>} />
         <Route path="/project/:projectId/outline" element={<AuthGuard><OutlineEditor /></AuthGuard>} />
         <Route path="/project/:projectId/detail" element={<AuthGuard><DetailEditor /></AuthGuard>} />

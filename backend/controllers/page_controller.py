@@ -379,8 +379,43 @@ def generate_page_image(project_id, page_id):
         if use_template:
             ref_image_path = file_service.get_template_path(project_id)
 
-        if not ref_image_path:
-            return bad_request("No template image found for project")
+        # 检查是否有模板图片或风格描述
+        # 如果都没有，则返回错误
+        if not ref_image_path and not project.template_style:
+            return bad_request("No template image or style description found for project")
+
+        # Generate prompt
+        page_data = page.get_outline_content() or {}
+        if page.part:
+            page_data['part'] = page.part
+
+        # 获取描述文本（可能是 text 字段或 text_content 数组）
+        desc_text = desc_content.get('text', '')
+        if not desc_text and desc_content.get('text_content'):
+            # 如果 text 字段不存在，尝试从 text_content 数组获取
+            text_content = desc_content.get('text_content', [])
+            if isinstance(text_content, list):
+                desc_text = '\n'.join(text_content)
+            else:
+                desc_text = str(text_content)
+
+        # 从当前页面的描述内容中提取图片 URL（在生成 prompt 之前提取，以便告知 AI）
+        additional_ref_images = []
+        has_material_images = False
+
+        # 从描述文本中提取图片
+        if desc_text:
+            image_urls = ai_service.extract_image_urls_from_markdown(desc_text)
+            if image_urls:
+                logger.info(f"Found {len(image_urls)} image(s) in page {page_id} description")
+                additional_ref_images = image_urls
+                has_material_images = True
+
+        # 合并额外要求和风格描述
+        combined_requirements = project.extra_requirements or ""
+        if project.template_style:
+            style_requirement = f"\n\nppt页面风格描述：\n\n{project.template_style}"
+            combined_requirements = combined_requirements + style_requirement
 
         # Create async task for image generation
         task = Task(
@@ -412,7 +447,7 @@ def generate_page_image(project_id, page_id):
             current_app.config['DEFAULT_ASPECT_RATIO'],
             current_app.config['DEFAULT_RESOLUTION'],
             app,
-            project.extra_requirements,
+            combined_requirements if combined_requirements.strip() else None,
             language
         )
 

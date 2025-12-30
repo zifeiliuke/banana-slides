@@ -185,9 +185,8 @@ const settingsSections: SectionConfig[] = [
   },
 ];
 
+// Settings 组件 - 纯嵌入模式（可复用）
 export const Settings: React.FC = () => {
-  const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const { show, ToastContainer } = useToast();
   const { confirm, ConfirmDialog } = useConfirm();
   const { user } = useAuthStore();
@@ -195,86 +194,14 @@ export const Settings: React.FC = () => {
   // 是否为管理员
   const isAdmin = user?.role === 'admin';
 
-  const [activeTab, setActiveTab] = useState<'settings' | 'account'>(
-    searchParams.get('tab') === 'account' ? 'account' : 'settings'
-  );
   const [settings, setSettings] = useState<SettingsType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState(initialFormData);
 
-  // 密码修改表单
-  const [passwordForm, setPasswordForm] = useState({
-    old_password: '',
-    new_password: '',
-    confirm_password: '',
-  });
-
-  // 充值码兑换
-  const [redeemCode, setRedeemCode] = useState('');
-  const [isRedeeming, setIsRedeeming] = useState(false);
-
-  // 邀请统计
-  const [referralStats, setReferralStats] = useState<UserReferralStats | null>(null);
-  const [isLoadingReferral, setIsLoadingReferral] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
-
-  // 处理 URL 参数变化
-  useEffect(() => {
-    const tab = searchParams.get('tab');
-    if (tab === 'account') {
-      setActiveTab('account');
-    } else {
-      setActiveTab('settings');
-    }
-  }, [searchParams]);
-
-  const handleTabChange = (tab: 'settings' | 'account') => {
-    setActiveTab(tab);
-    if (tab === 'account') {
-      setSearchParams({ tab: 'account' });
-      loadReferralStats();
-    } else {
-      setSearchParams({});
-    }
-  };
-
-  const loadReferralStats = async () => {
-    setIsLoadingReferral(true);
-    try {
-      const response = await api.getMyReferralStats();
-      if (response.data) {
-        setReferralStats(response.data);
-      }
-    } catch (error) {
-      console.error('加载邀请统计失败:', error);
-    } finally {
-      setIsLoadingReferral(false);
-    }
-  };
-
-  const handleCopyLink = async () => {
-    if (!referralStats?.referral_link) return;
-    try {
-      await navigator.clipboard.writeText(referralStats.referral_link);
-      setCopiedLink(true);
-      show({ message: '邀请链接已复制到剪贴板', type: 'success' });
-      setTimeout(() => setCopiedLink(false), 2000);
-    } catch (error) {
-      show({ message: '复制失败，请手动复制', type: 'error' });
-    }
-  };
-
   useEffect(() => {
     loadSettings();
   }, [isAdmin]);
-
-  // 如果直接打开 account tab，加载邀请统计
-  useEffect(() => {
-    if (activeTab === 'account' && !referralStats && !isLoadingReferral) {
-      loadReferralStats();
-    }
-  }, [activeTab]);
 
   const loadSettings = async () => {
     setIsLoading(true);
@@ -470,67 +397,6 @@ export const Settings: React.FC = () => {
     );
   };
 
-  const handlePasswordChange = async () => {
-    if (!passwordForm.old_password || !passwordForm.new_password) {
-      show({ message: '请填写完整的密码信息', type: 'error' });
-      return;
-    }
-
-    if (passwordForm.new_password.length < 6) {
-      show({ message: '新密码长度至少6个字符', type: 'error' });
-      return;
-    }
-
-    if (passwordForm.new_password !== passwordForm.confirm_password) {
-      show({ message: '两次输入的密码不一致', type: 'error' });
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      await api.changePassword(passwordForm.old_password, passwordForm.new_password);
-      show({ message: '密码修改成功', type: 'success' });
-      setPasswordForm({ old_password: '', new_password: '', confirm_password: '' });
-    } catch (error: any) {
-      show({
-        message: error?.response?.data?.error || '密码修改失败',
-        type: 'error'
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleRedeemCode = async () => {
-    if (!redeemCode.trim()) {
-      show({ message: '请输入充值码', type: 'error' });
-      return;
-    }
-
-    setIsRedeeming(true);
-    try {
-      const response = await api.redeemCode(redeemCode.trim());
-      if (response.success && response.data) {
-        show({ message: response.data.message, type: 'success' });
-        setRedeemCode('');
-        // 更新用户信息
-        const { updateUser } = useAuthStore.getState();
-        updateUser({
-          tier: response.data.tier as 'free' | 'premium',
-          is_premium_active: response.data.is_premium_active,
-          premium_expires_at: response.data.premium_expires_at,
-        });
-      }
-    } catch (error: any) {
-      show({
-        message: error?.response?.data?.error?.message || error?.response?.data?.error || '兑换失败',
-        type: 'error'
-      });
-    } finally {
-      setIsRedeeming(false);
-    }
-  };
-
   const handleFieldChange = (key: string, value: any) => {
     setFormData(prev => ({ ...prev, [key]: value }));
   };
@@ -621,19 +487,433 @@ export const Settings: React.FC = () => {
     );
   };
 
+  const visibleSettingsSections = isAdmin
+    ? settingsSections
+    : settingsSections.filter((section) => ['大模型 API 配置', '模型配置'].includes(section.title));
+
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-banana-50 to-yellow-50 flex items-center justify-center">
-        <Loading text="加载设置中..." />
+      <div className="flex items-center justify-center py-12">
+        <Loading message="加载设置中..." />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-banana-50 to-yellow-50">
+    <>
       <ToastContainer />
       {ConfirmDialog}
+      <div className="space-y-8">
+        {/* 配置区块（配置驱动） */}
+        <div className="space-y-8">
+          {visibleSettingsSections.map((section) => (
+            <div key={section.title}>
+              <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                {section.icon}
+                <span className="ml-2">{section.title}</span>
+              </h2>
+              <div className="space-y-4">
+                {section.fields.map((field) => renderField(field))}
+                {section.title === '大模型 API 配置' && (
+                  <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-sm text-gray-700">
+                      API 密匙获取可前往{' '}
+                      <a
+                        href="https://aihubmix.com/?aff=17EC"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 underline font-medium"
+                      >
+                        AIHubmix
+                      </a>
+                      , 减小迁移成本
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
 
+        {/* 操作按钮 */}
+        <div className={`flex items-center pt-4 border-t border-gray-200 ${isAdmin ? 'justify-between' : 'justify-end'}`}>
+          {isAdmin && (
+            <Button
+              variant="secondary"
+              icon={<RotateCcw size={18} />}
+              onClick={handleReset}
+              disabled={isSaving}
+            >
+              重置为默认配置
+            </Button>
+          )}
+          <Button
+            variant="primary"
+            icon={<Save size={18} />}
+            onClick={handleSave}
+            loading={isSaving}
+          >
+            {isSaving ? '保存中...' : '保存设置'}
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+};
+
+const AccountSettings: React.FC = () => {
+  const { show, ToastContainer } = useToast();
+  const { user, updateUser } = useAuthStore();
+
+  // 密码修改表单
+  const [passwordForm, setPasswordForm] = useState({
+    old_password: '',
+    new_password: '',
+    confirm_password: '',
+  });
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  // 充值码兑换
+  const [redeemCode, setRedeemCode] = useState('');
+  const [isRedeeming, setIsRedeeming] = useState(false);
+
+  // 邀请统计
+  const [referralStats, setReferralStats] = useState<UserReferralStats | null>(null);
+  const [isLoadingReferral, setIsLoadingReferral] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  const loadReferralStats = async () => {
+    setIsLoadingReferral(true);
+    try {
+      const response = await api.getMyReferralStats();
+      if (response.data) {
+        setReferralStats(response.data);
+      }
+    } catch (error) {
+      console.error('加载邀请统计失败:', error);
+    } finally {
+      setIsLoadingReferral(false);
+    }
+  };
+
+  useEffect(() => {
+    loadReferralStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleCopyLink = async () => {
+    if (!referralStats?.referral_link) return;
+    try {
+      await navigator.clipboard.writeText(referralStats.referral_link);
+      setCopiedLink(true);
+      show({ message: '邀请链接已复制到剪贴板', type: 'success' });
+      setTimeout(() => setCopiedLink(false), 2000);
+    } catch (error) {
+      show({ message: '复制失败，请手动复制', type: 'error' });
+    }
+  };
+
+  const handlePasswordChange = async () => {
+    if (!passwordForm.old_password || !passwordForm.new_password) {
+      show({ message: '请填写完整的密码信息', type: 'error' });
+      return;
+    }
+
+    if (passwordForm.new_password.length < 6) {
+      show({ message: '新密码长度至少6个字符', type: 'error' });
+      return;
+    }
+
+    if (passwordForm.new_password !== passwordForm.confirm_password) {
+      show({ message: '两次输入的密码不一致', type: 'error' });
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      await api.changePassword(passwordForm.old_password, passwordForm.new_password);
+      show({ message: '密码修改成功', type: 'success' });
+      setPasswordForm({ old_password: '', new_password: '', confirm_password: '' });
+    } catch (error: any) {
+      show({
+        message: error?.response?.data?.error || '密码修改失败',
+        type: 'error',
+      });
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  const handleRedeemCode = async () => {
+    if (!redeemCode.trim()) {
+      show({ message: '请输入充值码', type: 'error' });
+      return;
+    }
+
+    setIsRedeeming(true);
+    try {
+      const response = await api.redeemCode(redeemCode.trim());
+      if (response.success && response.data) {
+        show({ message: response.data.message, type: 'success' });
+        setRedeemCode('');
+        updateUser({
+          tier: response.data.tier as 'free' | 'premium',
+          is_premium_active: response.data.is_premium_active,
+          premium_expires_at: response.data.premium_expires_at,
+        });
+      }
+    } catch (error: any) {
+      show({
+        message: error?.response?.data?.error?.message || error?.response?.data?.error || '兑换失败',
+        type: 'error',
+      });
+    } finally {
+      setIsRedeeming(false);
+    }
+  };
+
+  if (!user) {
+    return (
+      <>
+        <ToastContainer />
+        <div className="text-center py-8 text-gray-500">请先登录</div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <ToastContainer />
+      <div className="space-y-8">
+        {/* 用户信息 */}
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+            <User size={20} />
+            <span className="ml-2">个人信息</span>
+          </h2>
+          <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-gray-600">用户名</span>
+              <span className="font-medium">{user.username}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-gray-600">邮箱</span>
+              <span className="font-medium">{user.email || '未设置'}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-gray-600">角色</span>
+              <span className="font-medium">{user.role === 'admin' ? '管理员' : '普通用户'}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-gray-600">注册时间</span>
+              <span className="font-medium">
+                {user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* 会员状态 */}
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+            <Crown size={20} />
+            <span className="ml-2">会员状态</span>
+          </h2>
+          <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-gray-600">当前等级</span>
+              <span
+                className={`font-medium flex items-center gap-1 ${
+                  user.tier === 'premium' ? 'text-yellow-600' : 'text-gray-600'
+                }`}
+              >
+                {user.tier === 'premium' && <Crown size={16} />}
+                {user.tier === 'premium' ? '高级会员' : '免费用户'}
+              </span>
+            </div>
+            {user.tier === 'premium' && (
+              <div className="flex items-center justify-between">
+                <span className="text-gray-600">到期时间</span>
+                <span className="font-medium">
+                  {user.premium_expires_at ? new Date(user.premium_expires_at).toLocaleDateString() : '永久'}
+                </span>
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-gray-600">会员状态</span>
+              <span className={`font-medium ${user.is_premium_active ? 'text-green-600' : 'text-gray-500'}`}>
+                {user.is_premium_active ? '有效' : '未激活'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* 修改密码 */}
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+            <Lock size={20} />
+            <span className="ml-2">修改密码</span>
+          </h2>
+          <div className="space-y-4">
+            <Input
+              label="当前密码"
+              type="password"
+              placeholder="请输入当前密码"
+              value={passwordForm.old_password}
+              onChange={(e) => setPasswordForm((prev) => ({ ...prev, old_password: e.target.value }))}
+            />
+            <Input
+              label="新密码"
+              type="password"
+              placeholder="请输入新密码（至少6个字符）"
+              value={passwordForm.new_password}
+              onChange={(e) => setPasswordForm((prev) => ({ ...prev, new_password: e.target.value }))}
+            />
+            <Input
+              label="确认新密码"
+              type="password"
+              placeholder="请再次输入新密码"
+              value={passwordForm.confirm_password}
+              onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirm_password: e.target.value }))}
+            />
+            <div className="pt-2">
+              <Button variant="primary" icon={<Save size={18} />} onClick={handlePasswordChange} loading={isChangingPassword}>
+                {isChangingPassword ? '保存中...' : '修改密码'}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* 充值码兑换 */}
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+            <Gift size={20} />
+            <span className="ml-2">充值码兑换</span>
+          </h2>
+          <div className="space-y-4">
+            <Input
+              label="充值码"
+              type="text"
+              placeholder="请输入充值码（如: ABCD1234EFGH5678）"
+              value={redeemCode}
+              onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
+            />
+            <p className="text-sm text-gray-500">输入有效的充值码可激活或延长您的高级会员资格，网营内购请咨询【流客】。</p>
+            <div className="pt-2">
+              <Button variant="primary" icon={<Gift size={18} />} onClick={handleRedeemCode} loading={isRedeeming}>
+                {isRedeeming ? '兑换中...' : '立即兑换'}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* 邀请中心 */}
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+            <Share2 size={20} />
+            <span className="ml-2">邀请好友</span>
+          </h2>
+          {isLoadingReferral ? (
+            <div className="text-center py-4">
+              <Loading message="加载中..." />
+            </div>
+          ) : referralStats ? (
+            referralStats.referral_enabled ? (
+              <div className="space-y-4">
+                {/* 邀请链接 */}
+                <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-4 border border-yellow-100">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">您的专属邀请链接</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={referralStats.referral_link}
+                      className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700"
+                    />
+                    <Button
+                      variant={copiedLink ? 'primary' : 'secondary'}
+                      icon={copiedLink ? <Check size={16} /> : <Copy size={16} />}
+                      onClick={handleCopyLink}
+                    >
+                      {copiedLink ? '已复制' : '复制'}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    邀请码: <span className="font-mono font-medium">{referralStats.referral_code}</span>
+                  </p>
+                </div>
+
+                {/* 统计数据 */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="bg-blue-50 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-blue-600">{referralStats.total_invites}</div>
+                    <div className="text-xs text-gray-600">邀请总数</div>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-green-600">{referralStats.registered_invites}</div>
+                    <div className="text-xs text-gray-600">已注册</div>
+                  </div>
+                  <div className="bg-purple-50 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-purple-600">{referralStats.premium_invites}</div>
+                    <div className="text-xs text-gray-600">已升级会员</div>
+                  </div>
+                  <div className="bg-yellow-50 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-yellow-600">{referralStats.total_reward_days}</div>
+                    <div className="text-xs text-gray-600">获得天数</div>
+                  </div>
+                </div>
+
+                {/* 奖励说明 */}
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+                    <Users size={16} />
+                    邀请奖励规则
+                  </h4>
+                  <ul className="text-sm text-gray-600 space-y-1">
+                    <li>
+                      • 好友通过您的链接注册，您和好友各获得{' '}
+                      <span className="font-medium text-yellow-600">{referralStats.register_reward_days} 天</span>会员
+                    </li>
+                    <li>
+                      • 好友升级为付费会员，您额外获得{' '}
+                      <span className="font-medium text-yellow-600">{referralStats.premium_reward_days} 天</span>会员
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-gray-50 rounded-lg p-6 text-center">
+                <Share2 size={40} className="mx-auto text-gray-300 mb-3" />
+                <p className="text-gray-500">邀请活动暂未开启</p>
+                <p className="text-sm text-gray-400 mt-1">敬请期待</p>
+              </div>
+            )
+          ) : (
+            <div className="text-center py-4 text-gray-500">暂无邀请数据</div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+};
+
+// SettingsPage 组件 - 完整页面包装
+export const SettingsPage: React.FC = () => {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const activeTab: 'settings' | 'account' = searchParams.get('tab') === 'account' ? 'account' : 'settings';
+
+  const handleTabChange = (tab: 'settings' | 'account') => {
+    if (tab === 'account') {
+      setSearchParams({ tab: 'account' });
+    } else {
+      setSearchParams({});
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-banana-50 to-yellow-50">
       <div className="container mx-auto px-4 py-8 max-w-4xl">
         <Card className="p-6 md:p-8">
           <div className="space-y-8">
@@ -650,9 +930,7 @@ export const Settings: React.FC = () => {
                 </Button>
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900">设置</h1>
-                  <p className="text-sm text-gray-500 mt-1">
-                    管理账户和系统配置
-                  </p>
+                  <p className="text-sm text-gray-500 mt-1">管理账户和系统配置</p>
                 </div>
               </div>
               <UserMenu />
@@ -684,289 +962,7 @@ export const Settings: React.FC = () => {
               </button>
             </div>
 
-            {/* API配置内容 */}
-            {activeTab === 'settings' && (
-              <>
-                <div className="space-y-8">
-                  {(isAdmin ? settingsSections : settingsSections.filter(s =>
-                    ['大模型 API 配置', '模型配置'].includes(s.title)
-                  )).map((section) => (
-                    <div key={section.title}>
-                      <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                        {section.icon}
-                        <span className="ml-2">{section.title}</span>
-                      </h2>
-                      <div className="space-y-4">
-                        {section.fields.map((field) => renderField(field))}
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* 普通用户提示 */}
-                  {!isAdmin && (
-                    <div className="bg-blue-50 rounded-lg p-4 text-sm text-blue-700">
-                      <p className="font-medium mb-1">提示：</p>
-                      <ul className="list-disc list-inside space-y-1 text-blue-600">
-                        <li>配置自己的 API 后可直接使用功能</li>
-                        <li>高级会员可使用系统 API，无需配置</li>
-                        <li>更多高级设置请联系管理员</li>
-                      </ul>
-                    </div>
-                  )}
-                </div>
-
-                {/* 操作按钮 */}
-                <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-                  {isAdmin ? (
-                    <Button
-                      variant="secondary"
-                      icon={<RotateCcw size={18} />}
-                      onClick={handleReset}
-                      disabled={isSaving}
-                    >
-                      重置为默认配置
-                    </Button>
-                  ) : (
-                    <div /> // 占位元素保持布局
-                  )}
-                  <Button
-                    variant="primary"
-                    icon={<Save size={18} />}
-                    onClick={handleSave}
-                    loading={isSaving}
-                  >
-                    {isSaving ? '保存中...' : '保存设置'}
-                  </Button>
-                </div>
-              </>
-            )}
-
-            {/* 账户信息内容 */}
-            {activeTab === 'account' && user && (
-              <div className="space-y-8">
-                {/* 用户信息 */}
-                <div>
-                  <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                    <User size={20} />
-                    <span className="ml-2">个人信息</span>
-                  </h2>
-                  <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">用户名</span>
-                      <span className="font-medium">{user.username}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">邮箱</span>
-                      <span className="font-medium">{user.email || '未设置'}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">角色</span>
-                      <span className="font-medium">
-                        {user.role === 'admin' ? '管理员' : '普通用户'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">注册时间</span>
-                      <span className="font-medium">
-                        {user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 会员状态 */}
-                <div>
-                  <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                    <Crown size={20} />
-                    <span className="ml-2">会员状态</span>
-                  </h2>
-                  <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">当前等级</span>
-                      <span className={`font-medium flex items-center gap-1 ${
-                        user.tier === 'premium' ? 'text-yellow-600' : 'text-gray-600'
-                      }`}>
-                        {user.tier === 'premium' && <Crown size={16} />}
-                        {user.tier === 'premium' ? '高级会员' : '免费用户'}
-                      </span>
-                    </div>
-                    {user.tier === 'premium' && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-600">到期时间</span>
-                        <span className="font-medium">
-                          {user.premium_expires_at
-                            ? new Date(user.premium_expires_at).toLocaleDateString()
-                            : '永久'}
-                        </span>
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">会员状态</span>
-                      <span className={`font-medium ${
-                        user.is_premium_active ? 'text-green-600' : 'text-gray-500'
-                      }`}>
-                        {user.is_premium_active ? '有效' : '未激活'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 修改密码 */}
-                <div>
-                  <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                    <Lock size={20} />
-                    <span className="ml-2">修改密码</span>
-                  </h2>
-                  <div className="space-y-4">
-                    <Input
-                      label="当前密码"
-                      type="password"
-                      placeholder="请输入当前密码"
-                      value={passwordForm.old_password}
-                      onChange={(e) => setPasswordForm(prev => ({ ...prev, old_password: e.target.value }))}
-                    />
-                    <Input
-                      label="新密码"
-                      type="password"
-                      placeholder="请输入新密码（至少6个字符）"
-                      value={passwordForm.new_password}
-                      onChange={(e) => setPasswordForm(prev => ({ ...prev, new_password: e.target.value }))}
-                    />
-                    <Input
-                      label="确认新密码"
-                      type="password"
-                      placeholder="请再次输入新密码"
-                      value={passwordForm.confirm_password}
-                      onChange={(e) => setPasswordForm(prev => ({ ...prev, confirm_password: e.target.value }))}
-                    />
-                    <div className="pt-2">
-                      <Button
-                        variant="primary"
-                        icon={<Save size={18} />}
-                        onClick={handlePasswordChange}
-                        loading={isSaving}
-                      >
-                        {isSaving ? '保存中...' : '修改密码'}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 充值码兑换 */}
-                <div>
-                  <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                    <Gift size={20} />
-                    <span className="ml-2">充值码兑换</span>
-                  </h2>
-                  <div className="space-y-4">
-                    <Input
-                      label="充值码"
-                      type="text"
-                      placeholder="请输入充值码（如: ABCD1234EFGH5678）"
-                      value={redeemCode}
-                      onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
-                    />
-                    <p className="text-sm text-gray-500">
-                      输入有效的充值码可激活或延长您的高级会员资格，网营内购请咨询【流客】。
-                    </p>
-                    <div className="pt-2">
-                      <Button
-                        variant="primary"
-                        icon={<Gift size={18} />}
-                        onClick={handleRedeemCode}
-                        loading={isRedeeming}
-                      >
-                        {isRedeeming ? '兑换中...' : '立即兑换'}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 邀请中心 */}
-                <div>
-                  <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                    <Share2 size={20} />
-                    <span className="ml-2">邀请好友</span>
-                  </h2>
-                  {isLoadingReferral ? (
-                    <div className="text-center py-4">
-                      <Loading text="加载中..." />
-                    </div>
-                  ) : referralStats ? (
-                    referralStats.referral_enabled ? (
-                      <div className="space-y-4">
-                        {/* 邀请链接 */}
-                        <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-4 border border-yellow-100">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            您的专属邀请链接
-                          </label>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              readOnly
-                              value={referralStats.referral_link}
-                              className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700"
-                            />
-                            <Button
-                              variant={copiedLink ? 'primary' : 'secondary'}
-                              icon={copiedLink ? <Check size={16} /> : <Copy size={16} />}
-                              onClick={handleCopyLink}
-                            >
-                              {copiedLink ? '已复制' : '复制'}
-                            </Button>
-                          </div>
-                          <p className="text-xs text-gray-500 mt-2">
-                            邀请码: <span className="font-mono font-medium">{referralStats.referral_code}</span>
-                          </p>
-                        </div>
-
-                        {/* 统计数据 */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                          <div className="bg-blue-50 rounded-lg p-3 text-center">
-                            <div className="text-2xl font-bold text-blue-600">{referralStats.total_invites}</div>
-                            <div className="text-xs text-gray-600">邀请总数</div>
-                          </div>
-                          <div className="bg-green-50 rounded-lg p-3 text-center">
-                            <div className="text-2xl font-bold text-green-600">{referralStats.registered_invites}</div>
-                            <div className="text-xs text-gray-600">已注册</div>
-                          </div>
-                          <div className="bg-purple-50 rounded-lg p-3 text-center">
-                            <div className="text-2xl font-bold text-purple-600">{referralStats.premium_invites}</div>
-                            <div className="text-xs text-gray-600">已升级会员</div>
-                          </div>
-                          <div className="bg-yellow-50 rounded-lg p-3 text-center">
-                            <div className="text-2xl font-bold text-yellow-600">{referralStats.total_reward_days}</div>
-                            <div className="text-xs text-gray-600">获得天数</div>
-                          </div>
-                        </div>
-
-                        {/* 奖励说明 */}
-                        <div className="bg-gray-50 rounded-lg p-4">
-                          <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
-                            <Users size={16} />
-                            邀请奖励规则
-                          </h4>
-                          <ul className="text-sm text-gray-600 space-y-1">
-                            <li>• 好友通过您的链接注册，您和好友各获得 <span className="font-medium text-yellow-600">{referralStats.register_reward_days} 天</span>会员</li>
-                            <li>• 好友升级为付费会员，您额外获得 <span className="font-medium text-yellow-600">{referralStats.premium_reward_days} 天</span>会员</li>
-                          </ul>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="bg-gray-50 rounded-lg p-6 text-center">
-                        <Share2 size={40} className="mx-auto text-gray-300 mb-3" />
-                        <p className="text-gray-500">邀请活动暂未开启</p>
-                        <p className="text-sm text-gray-400 mt-1">敬请期待</p>
-                      </div>
-                    )
-                  ) : (
-                    <div className="text-center py-4 text-gray-500">
-                      暂无邀请数据
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+            {activeTab === 'settings' ? <Settings /> : <AccountSettings />}
           </div>
         </Card>
       </div>
