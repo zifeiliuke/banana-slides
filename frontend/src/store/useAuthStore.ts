@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { User, LoginRequest, RegisterRequest } from '@/types';
 import { apiClient, setTokens, clearTokens, getAccessToken } from '@/api/client';
+import { getApiErrorMessage } from '@/utils/apiError';
 
 interface AuthState {
   // 状态
@@ -53,7 +54,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return false;
       }
     } catch (error: any) {
-      const message = error.response?.data?.message || '登录失败，请检查用户名和密码';
+      const message = getApiErrorMessage(error, '登录失败，请检查用户名和密码');
       set({ error: message, isLoading: false });
       return false;
     }
@@ -74,7 +75,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return false;
       }
     } catch (error: any) {
-      const message = error.response?.data?.message || '注册失败，请稍后重试';
+      const message = getApiErrorMessage(error, '注册失败，请稍后重试');
       set({ error: message, isLoading: false });
       return false;
     }

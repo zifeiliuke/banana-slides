@@ -2,7 +2,9 @@
 User model - stores user account information
 """
 import uuid
-from datetime import datetime, timezone
+import secrets
+import string
+from datetime import datetime, timezone, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 from . import db
 
@@ -26,6 +28,16 @@ class User(db.Model):
                           onupdate=lambda: datetime.now(timezone.utc))
     last_login_at = db.Column(db.DateTime, nullable=True)
 
+    # ========== 邀请裂变相关字段 ==========
+    # 用户专属邀请码（注册时自动生成）
+    referral_code = db.Column(db.String(16), unique=True, nullable=True, index=True)
+    # 通过谁的邀请注册（邀请者用户ID）
+    referred_by_user_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=True)
+
+    # ========== 邮箱验证相关字段 ==========
+    # 邮箱是否已验证
+    email_verified = db.Column(db.Boolean, nullable=False, default=False)
+
     # Relationships
     projects = db.relationship('Project', back_populates='user', lazy='dynamic',
                               cascade='all, delete-orphan')
@@ -33,6 +45,8 @@ class User(db.Model):
                                cascade='all, delete-orphan')
     settings = db.relationship('UserSettings', back_populates='user', uselist=False,
                               cascade='all, delete-orphan')
+    # 邀请关系
+    referred_by = db.relationship('User', remote_side=[id], backref='referrals_made')
 
     def set_password(self, password: str):
         """Hash and set password"""
@@ -66,6 +80,7 @@ class User(db.Model):
             'id': self.id,
             'username': self.username,
             'email': self.email,
+            'email_verified': self.email_verified,
             'role': self.role,
             'tier': self.tier,
             'is_premium_active': self.is_premium_active(),
@@ -73,12 +88,58 @@ class User(db.Model):
             'is_active': self.is_active,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'last_login_at': self.last_login_at.isoformat() if self.last_login_at else None,
+            'referral_code': self.referral_code,
+            'referred_by_user_id': self.referred_by_user_id,
         }
 
         if include_sensitive:
             data['updated_at'] = self.updated_at.isoformat() if self.updated_at else None
 
         return data
+
+    @staticmethod
+    def generate_referral_code(length=8):
+        """生成随机邀请码"""
+        alphabet = string.ascii_uppercase + string.digits
+        # 排除容易混淆的字符
+        alphabet = alphabet.replace('O', '').replace('0', '').replace('I', '').replace('1', '').replace('L', '')
+        return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+    def ensure_referral_code(self):
+        """确保用户有邀请码，如果没有则生成"""
+        if not self.referral_code:
+            # 生成唯一邀请码
+            for _ in range(10):  # 最多尝试10次
+                code = self.generate_referral_code()
+                if not User.query.filter_by(referral_code=code).first():
+                    self.referral_code = code
+                    break
+        return self.referral_code
+
+    def add_premium_days(self, days: int):
+        """
+        增加会员天数
+
+        Args:
+            days: 要增加的天数
+        """
+        now = datetime.now(timezone.utc)
+
+        if self.tier == 'premium' and self.premium_expires_at:
+            # 已是会员，在现有基础上延长
+            expires_at = self.premium_expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at > now:
+                self.premium_expires_at = expires_at + timedelta(days=days)
+            else:
+                self.premium_expires_at = now + timedelta(days=days)
+        else:
+            # 新开通会员
+            self.premium_expires_at = now + timedelta(days=days)
+
+        self.tier = 'premium'
+        self.updated_at = now
 
     def __repr__(self):
         return f'<User {self.username} ({self.role}/{self.tier})>'

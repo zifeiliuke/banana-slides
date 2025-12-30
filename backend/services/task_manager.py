@@ -513,8 +513,22 @@ def generate_single_page_image_task(task_id: str, project_id: str, page_id: str,
                 "completed": 1,
                 "failed": 0
             })
+
+            # Record usage for this image generation
+            try:
+                from models import Project
+                project = Project.query.get(project_id)
+                if project and project.user_id:
+                    from services.usage_service import UsageService
+                    from models import User
+                    user = User.query.get(project.user_id)
+                    if user:
+                        UsageService.record_image_generation(user, 1)
+            except Exception as usage_error:
+                logger.warning(f"Failed to record usage: {usage_error}")
+
             db.session.commit()
-            
+
             logger.info(f"✅ Task {task_id} COMPLETED - Page {page_id} image generated")
         
         except Exception as e:
@@ -636,8 +650,22 @@ def edit_page_image_task(task_id: str, project_id: str, page_id: str,
                 "completed": 1,
                 "failed": 0
             })
+
+            # Record usage for this image generation
+            try:
+                from models import Project
+                project = Project.query.get(project_id)
+                if project and project.user_id:
+                    from services.usage_service import UsageService
+                    from models import User
+                    user = User.query.get(project.user_id)
+                    if user:
+                        UsageService.record_image_generation(user, 1)
+            except Exception as usage_error:
+                logger.warning(f"Failed to record usage: {usage_error}")
+
             db.session.commit()
-            
+
             logger.info(f"✅ Task {task_id} COMPLETED - Page {page_id} image edited")
         
         except Exception as e:

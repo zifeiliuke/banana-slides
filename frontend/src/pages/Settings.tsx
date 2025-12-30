@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Home, Key, Image, Zap, Save, RotateCcw, Globe, FileText, User, Crown, Lock, Gift } from 'lucide-react';
+import { Home, Key, Image, Zap, Save, RotateCcw, Globe, FileText, User, Crown, Lock, Gift, Share2, Copy, Check, Users } from 'lucide-react';
 import { Button, Input, Card, Loading, useToast, useConfirm } from '@/components/shared';
 import { UserMenu } from '@/components/auth';
 import { useAuthStore } from '@/store/useAuthStore';
 import * as api from '@/api/endpoints';
-import type { OutputLanguage } from '@/api/endpoints';
+import type { OutputLanguage, UserReferralStats } from '@/api/endpoints';
 import { OUTPUT_LANGUAGE_OPTIONS } from '@/api/endpoints';
 import type { Settings as SettingsType } from '@/types';
 
@@ -192,6 +192,9 @@ export const Settings: React.FC = () => {
   const { confirm, ConfirmDialog } = useConfirm();
   const { user } = useAuthStore();
 
+  // 是否为管理员
+  const isAdmin = user?.role === 'admin';
+
   const [activeTab, setActiveTab] = useState<'settings' | 'account'>(
     searchParams.get('tab') === 'account' ? 'account' : 'settings'
   );
@@ -211,6 +214,11 @@ export const Settings: React.FC = () => {
   const [redeemCode, setRedeemCode] = useState('');
   const [isRedeeming, setIsRedeeming] = useState(false);
 
+  // 邀请统计
+  const [referralStats, setReferralStats] = useState<UserReferralStats | null>(null);
+  const [isLoadingReferral, setIsLoadingReferral] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+
   // 处理 URL 参数变化
   useEffect(() => {
     const tab = searchParams.get('tab');
@@ -225,36 +233,112 @@ export const Settings: React.FC = () => {
     setActiveTab(tab);
     if (tab === 'account') {
       setSearchParams({ tab: 'account' });
+      loadReferralStats();
     } else {
       setSearchParams({});
     }
   };
 
+  const loadReferralStats = async () => {
+    setIsLoadingReferral(true);
+    try {
+      const response = await api.getMyReferralStats();
+      if (response.data) {
+        setReferralStats(response.data);
+      }
+    } catch (error) {
+      console.error('加载邀请统计失败:', error);
+    } finally {
+      setIsLoadingReferral(false);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    if (!referralStats?.referral_link) return;
+    try {
+      await navigator.clipboard.writeText(referralStats.referral_link);
+      setCopiedLink(true);
+      show({ message: '邀请链接已复制到剪贴板', type: 'success' });
+      setTimeout(() => setCopiedLink(false), 2000);
+    } catch (error) {
+      show({ message: '复制失败，请手动复制', type: 'error' });
+    }
+  };
+
   useEffect(() => {
     loadSettings();
-  }, []);
+  }, [isAdmin]);
+
+  // 如果直接打开 account tab，加载邀请统计
+  useEffect(() => {
+    if (activeTab === 'account' && !referralStats && !isLoadingReferral) {
+      loadReferralStats();
+    }
+  }, [activeTab]);
 
   const loadSettings = async () => {
     setIsLoading(true);
     try {
-      const response = await api.getSettings();
-      if (response.data) {
-        setSettings(response.data);
-        setFormData({
-          ai_provider_format: response.data.ai_provider_format || 'gemini',
-          api_base_url: response.data.api_base_url || '',
-          api_key: '',
-          image_resolution: response.data.image_resolution || '2K',
-          image_aspect_ratio: response.data.image_aspect_ratio || '16:9',
-          max_description_workers: response.data.max_description_workers || 5,
-          max_image_workers: response.data.max_image_workers || 8,
-          text_model: response.data.text_model || '',
-          image_model: response.data.image_model || '',
-          mineru_api_base: response.data.mineru_api_base || '',
-          mineru_token: '',
-          image_caption_model: response.data.image_caption_model || '',
-          output_language: response.data.output_language || 'zh',
-        });
+      if (isAdmin) {
+        // 管理员加载全局设置
+        const response = await api.getSettings();
+        if (response.data) {
+          setSettings(response.data);
+          setFormData({
+            ai_provider_format: response.data.ai_provider_format || 'gemini',
+            api_base_url: response.data.api_base_url || '',
+            api_key: '',
+            image_resolution: response.data.image_resolution || '2K',
+            image_aspect_ratio: response.data.image_aspect_ratio || '16:9',
+            max_description_workers: response.data.max_description_workers || 5,
+            max_image_workers: response.data.max_image_workers || 8,
+            text_model: response.data.text_model || '',
+            image_model: response.data.image_model || '',
+            mineru_api_base: response.data.mineru_api_base || '',
+            mineru_token: '',
+            image_caption_model: response.data.image_caption_model || '',
+            output_language: response.data.output_language || 'zh',
+          });
+        }
+      } else {
+        // 普通用户加载个人设置
+        const response = await api.getUserSettings();
+        if (response.data) {
+          const userSettings = response.data;
+          // 转换为通用设置格式
+          setSettings({
+            ai_provider_format: userSettings.ai_provider_format || 'gemini',
+            api_base_url: userSettings.api_base_url || '',
+            api_key_length: userSettings.api_key_length || 0,
+            text_model: userSettings.text_model || '',
+            image_model: userSettings.image_model || '',
+            image_caption_model: userSettings.image_caption_model || '',
+            // 普通用户没有以下设置，使用默认值
+            image_resolution: '2K',
+            image_aspect_ratio: '16:9',
+            max_description_workers: 5,
+            max_image_workers: 8,
+            mineru_api_base: '',
+            mineru_token_length: 0,
+            output_language: 'zh',
+          } as SettingsType);
+          setFormData({
+            ai_provider_format: userSettings.ai_provider_format || 'gemini',
+            api_base_url: userSettings.api_base_url || '',
+            api_key: '',
+            text_model: userSettings.text_model || '',
+            image_model: userSettings.image_model || '',
+            image_caption_model: userSettings.image_caption_model || '',
+            // 默认值
+            image_resolution: '2K',
+            image_aspect_ratio: '16:9',
+            max_description_workers: 5,
+            max_image_workers: 8,
+            mineru_api_base: '',
+            mineru_token: '',
+            output_language: 'zh',
+          });
+        }
       }
     } catch (error: any) {
       console.error('加载设置失败:', error);
@@ -270,24 +354,62 @@ export const Settings: React.FC = () => {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const { api_key, mineru_token, ...otherData } = formData;
-      const payload: Parameters<typeof api.updateSettings>[0] = {
-        ...otherData,
-      };
+      if (isAdmin) {
+        // 管理员保存全局设置
+        const { api_key, mineru_token, ...otherData } = formData;
+        const payload: Parameters<typeof api.updateSettings>[0] = {
+          ...otherData,
+        };
 
-      if (api_key) {
-        payload.api_key = api_key;
-      }
+        if (api_key) {
+          payload.api_key = api_key;
+        }
 
-      if (mineru_token) {
-        payload.mineru_token = mineru_token;
-      }
+        if (mineru_token) {
+          payload.mineru_token = mineru_token;
+        }
 
-      const response = await api.updateSettings(payload);
-      if (response.data) {
-        setSettings(response.data);
-        show({ message: '设置保存成功', type: 'success' });
-        setFormData(prev => ({ ...prev, api_key: '', mineru_token: '' }));
+        const response = await api.updateSettings(payload);
+        if (response.data) {
+          setSettings(response.data);
+          show({ message: '设置保存成功', type: 'success' });
+          setFormData(prev => ({ ...prev, api_key: '', mineru_token: '' }));
+        }
+      } else {
+        // 普通用户保存个人设置
+        const userPayload: Parameters<typeof api.updateUserSettings>[0] = {
+          ai_provider_format: formData.ai_provider_format,
+          api_base_url: formData.api_base_url || undefined,
+          text_model: formData.text_model || undefined,
+          image_model: formData.image_model || undefined,
+          image_caption_model: formData.image_caption_model || undefined,
+        };
+
+        if (formData.api_key) {
+          userPayload.api_key = formData.api_key;
+        }
+
+        const response = await api.updateUserSettings(userPayload);
+        if (response.data) {
+          const userSettings = response.data;
+          setSettings({
+            ai_provider_format: userSettings.ai_provider_format || 'gemini',
+            api_base_url: userSettings.api_base_url || '',
+            api_key_length: userSettings.api_key_length || 0,
+            text_model: userSettings.text_model || '',
+            image_model: userSettings.image_model || '',
+            image_caption_model: userSettings.image_caption_model || '',
+            image_resolution: '2K',
+            image_aspect_ratio: '16:9',
+            max_description_workers: 5,
+            max_image_workers: 8,
+            mineru_api_base: '',
+            mineru_token_length: 0,
+            output_language: 'zh',
+          } as SettingsType);
+          show({ message: '设置保存成功', type: 'success' });
+          setFormData(prev => ({ ...prev, api_key: '' }));
+        }
       }
     } catch (error: any) {
       console.error('保存设置失败:', error);
@@ -300,7 +422,10 @@ export const Settings: React.FC = () => {
     }
   };
 
+  // 重置设置（仅管理员可用）
   const handleReset = () => {
+    if (!isAdmin) return;
+
     confirm(
       '将把大模型、图像生成和并发等所有配置恢复为环境默认值，已保存的自定义设置将丢失，确定继续吗？',
       async () => {
@@ -544,7 +669,7 @@ export const Settings: React.FC = () => {
                 }`}
               >
                 <Key size={16} className="inline mr-2" />
-                系统设置
+                API配置
               </button>
               <button
                 onClick={() => handleTabChange('account')}
@@ -559,11 +684,13 @@ export const Settings: React.FC = () => {
               </button>
             </div>
 
-            {/* 系统设置内容 */}
+            {/* API配置内容 */}
             {activeTab === 'settings' && (
               <>
                 <div className="space-y-8">
-                  {settingsSections.map((section) => (
+                  {(isAdmin ? settingsSections : settingsSections.filter(s =>
+                    ['大模型 API 配置', '模型配置'].includes(s.title)
+                  )).map((section) => (
                     <div key={section.title}>
                       <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
                         {section.icon}
@@ -574,18 +701,34 @@ export const Settings: React.FC = () => {
                       </div>
                     </div>
                   ))}
+
+                  {/* 普通用户提示 */}
+                  {!isAdmin && (
+                    <div className="bg-blue-50 rounded-lg p-4 text-sm text-blue-700">
+                      <p className="font-medium mb-1">提示：</p>
+                      <ul className="list-disc list-inside space-y-1 text-blue-600">
+                        <li>配置自己的 API 后可直接使用功能</li>
+                        <li>高级会员可使用系统 API，无需配置</li>
+                        <li>更多高级设置请联系管理员</li>
+                      </ul>
+                    </div>
+                  )}
                 </div>
 
                 {/* 操作按钮 */}
                 <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-                  <Button
-                    variant="secondary"
-                    icon={<RotateCcw size={18} />}
-                    onClick={handleReset}
-                    disabled={isSaving}
-                  >
-                    重置为默认配置
-                  </Button>
+                  {isAdmin ? (
+                    <Button
+                      variant="secondary"
+                      icon={<RotateCcw size={18} />}
+                      onClick={handleReset}
+                      disabled={isSaving}
+                    >
+                      重置为默认配置
+                    </Button>
+                  ) : (
+                    <div /> // 占位元素保持布局
+                  )}
                   <Button
                     variant="primary"
                     icon={<Save size={18} />}
@@ -724,7 +867,7 @@ export const Settings: React.FC = () => {
                       onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
                     />
                     <p className="text-sm text-gray-500">
-                      输入有效的充值码可激活或延长您的高级会员资格
+                      输入有效的充值码可激活或延长您的高级会员资格，网营内购请咨询【流客】。
                     </p>
                     <div className="pt-2">
                       <Button
@@ -737,6 +880,90 @@ export const Settings: React.FC = () => {
                       </Button>
                     </div>
                   </div>
+                </div>
+
+                {/* 邀请中心 */}
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                    <Share2 size={20} />
+                    <span className="ml-2">邀请好友</span>
+                  </h2>
+                  {isLoadingReferral ? (
+                    <div className="text-center py-4">
+                      <Loading text="加载中..." />
+                    </div>
+                  ) : referralStats ? (
+                    referralStats.referral_enabled ? (
+                      <div className="space-y-4">
+                        {/* 邀请链接 */}
+                        <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-4 border border-yellow-100">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            您的专属邀请链接
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              readOnly
+                              value={referralStats.referral_link}
+                              className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700"
+                            />
+                            <Button
+                              variant={copiedLink ? 'primary' : 'secondary'}
+                              icon={copiedLink ? <Check size={16} /> : <Copy size={16} />}
+                              onClick={handleCopyLink}
+                            >
+                              {copiedLink ? '已复制' : '复制'}
+                            </Button>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-2">
+                            邀请码: <span className="font-mono font-medium">{referralStats.referral_code}</span>
+                          </p>
+                        </div>
+
+                        {/* 统计数据 */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <div className="bg-blue-50 rounded-lg p-3 text-center">
+                            <div className="text-2xl font-bold text-blue-600">{referralStats.total_invites}</div>
+                            <div className="text-xs text-gray-600">邀请总数</div>
+                          </div>
+                          <div className="bg-green-50 rounded-lg p-3 text-center">
+                            <div className="text-2xl font-bold text-green-600">{referralStats.registered_invites}</div>
+                            <div className="text-xs text-gray-600">已注册</div>
+                          </div>
+                          <div className="bg-purple-50 rounded-lg p-3 text-center">
+                            <div className="text-2xl font-bold text-purple-600">{referralStats.premium_invites}</div>
+                            <div className="text-xs text-gray-600">已升级会员</div>
+                          </div>
+                          <div className="bg-yellow-50 rounded-lg p-3 text-center">
+                            <div className="text-2xl font-bold text-yellow-600">{referralStats.total_reward_days}</div>
+                            <div className="text-xs text-gray-600">获得天数</div>
+                          </div>
+                        </div>
+
+                        {/* 奖励说明 */}
+                        <div className="bg-gray-50 rounded-lg p-4">
+                          <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+                            <Users size={16} />
+                            邀请奖励规则
+                          </h4>
+                          <ul className="text-sm text-gray-600 space-y-1">
+                            <li>• 好友通过您的链接注册，您和好友各获得 <span className="font-medium text-yellow-600">{referralStats.register_reward_days} 天</span>会员</li>
+                            <li>• 好友升级为付费会员，您额外获得 <span className="font-medium text-yellow-600">{referralStats.premium_reward_days} 天</span>会员</li>
+                          </ul>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-gray-50 rounded-lg p-6 text-center">
+                        <Share2 size={40} className="mx-auto text-gray-300 mb-3" />
+                        <p className="text-gray-500">邀请活动暂未开启</p>
+                        <p className="text-sm text-gray-400 mt-1">敬请期待</p>
+                      </div>
+                    )
+                  ) : (
+                    <div className="text-center py-4 text-gray-500">
+                      暂无邀请数据
+                    </div>
+                  )}
                 </div>
               </div>
             )}

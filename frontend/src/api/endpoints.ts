@@ -997,6 +997,14 @@ export const adminToggleUserActive = async (userId: string): Promise<ApiResponse
 };
 
 /**
+ * 删除用户（管理员）
+ */
+export const adminDeleteUser = async (userId: string): Promise<ApiResponse<{ message: string }>> => {
+  const response = await apiClient.delete(`/api/admin/users/${userId}`);
+  return response.data;
+};
+
+/**
  * 获取充值码列表（管理员）
  */
 export const adminListRechargeCodes = async (params?: {
@@ -1044,5 +1052,192 @@ export const changePassword = async (oldPassword: string, newPassword: string): 
     old_password: oldPassword,
     new_password: newPassword,
   });
+  return response.data;
+};
+
+// ===== 系统设置 API (管理员) =====
+
+export interface SystemSettingsData {
+  // 注册设置
+  default_user_tier: 'free' | 'premium';
+  default_premium_days: number;
+  require_email_verification: boolean;
+  // 裂变设置
+  referral_enabled: boolean;
+  referral_register_reward_days: number;
+  referral_invitee_reward_days: number;
+  referral_premium_reward_days: number;
+  referral_domain: string;
+  // 用量限制
+  daily_image_generation_limit: number;
+  enable_usage_limit: boolean;
+  // SMTP设置
+  smtp_host?: string;
+  smtp_port?: number;
+  smtp_user?: string;
+  smtp_password?: string;
+  smtp_use_ssl: boolean;
+  smtp_sender_name?: string;
+  smtp_configured: boolean;
+  // 时间戳
+  updated_at?: string;
+}
+
+/**
+ * 获取系统设置（管理员）
+ */
+export const getSystemSettings = async (): Promise<ApiResponse<SystemSettingsData>> => {
+  const response = await apiClient.get<ApiResponse<SystemSettingsData>>('/api/admin/system-settings');
+  return response.data;
+};
+
+/**
+ * 更新系统设置（管理员）
+ */
+export const updateSystemSettings = async (data: Partial<SystemSettingsData>): Promise<ApiResponse<{ message: string; settings: SystemSettingsData }>> => {
+  const response = await apiClient.put('/api/admin/system-settings', data);
+  return response.data;
+};
+
+/**
+ * 测试SMTP配置（管理员）
+ */
+export const testSmtp = async (data: { test_email: string }): Promise<ApiResponse<{ message: string }>> => {
+  const response = await apiClient.post('/api/admin/system-settings/test-smtp', data);
+  return response.data;
+};
+
+// ===== 邀请裂变 API =====
+
+export interface ReferralStatsData {
+  total_referrals: number;
+  registered_referrals: number;
+  premium_referrals: number;
+  total_register_rewards_days: number;
+  total_premium_rewards_days: number;
+  total_rewards_days: number;
+}
+
+/**
+ * 获取邀请裂变统计（管理员）
+ */
+export const getReferralStats = async (): Promise<ApiResponse<ReferralStatsData>> => {
+  const response = await apiClient.get<ApiResponse<ReferralStatsData>>('/api/admin/referral/stats');
+  return response.data;
+};
+
+/**
+ * 获取邀请列表（管理员）
+ */
+export const adminListReferrals = async (params?: {
+  page?: number;
+  per_page?: number;
+  status?: string;
+}): Promise<ApiResponse<{
+  referrals: any[];
+  total: number;
+  page: number;
+  per_page: number;
+  pages: number;
+}>> => {
+  const response = await apiClient.get('/api/admin/referral/list', { params });
+  return response.data;
+};
+
+// ===== 用量统计 API =====
+
+export interface UsageStatsData {
+  daily_stats: Array<{ date: string; image_count: number; user_count: number }>;
+  today_total: number;
+  all_time_total: number;
+}
+
+/**
+ * 获取用量统计（管理员）
+ */
+export const getUsageStats = async (params?: { days?: number }): Promise<ApiResponse<UsageStatsData>> => {
+  const response = await apiClient.get<ApiResponse<UsageStatsData>>('/api/admin/usage/stats', { params });
+  return response.data;
+};
+
+// 用户使用量统计数据
+export interface UserUsageStat {
+  user_id: string;
+  username: string;
+  email: string;
+  tier: 'free' | 'premium';
+  image_generation_count: number;
+  text_generation_count: number;
+  total_tokens: number;
+  image_cost: number;
+  text_cost: number;
+  total_cost: number;
+}
+
+export interface UserUsageStatsData {
+  user_stats: UserUsageStat[];
+  summary: {
+    total_image_count: number;
+    total_text_count: number;
+    total_tokens: number;
+    total_image_cost: number;
+    total_text_cost: number;
+    total_cost: number;
+  };
+}
+
+/**
+ * 获取每个用户的使用量统计（管理员）
+ */
+export const getUserUsageStats = async (): Promise<ApiResponse<UserUsageStatsData>> => {
+  const response = await apiClient.get<ApiResponse<UserUsageStatsData>>('/api/admin/usage/user-stats');
+  return response.data;
+};
+
+// ===== 用户邀请 API =====
+
+export interface UserReferralStats {
+  referral_enabled: boolean;
+  referral_code: string;
+  referral_link: string;
+  total_invites: number;
+  registered_invites: number;
+  premium_invites: number;
+  total_reward_days: number;
+  register_reward_days: number;
+  premium_reward_days: number;
+}
+
+/**
+ * 获取当前用户的邀请统计
+ */
+export const getMyReferralStats = async (): Promise<ApiResponse<UserReferralStats>> => {
+  const response = await apiClient.get<ApiResponse<UserReferralStats>>('/api/referral/stats');
+  return response.data;
+};
+
+/**
+ * 获取当前用户的邀请码
+ */
+export const getMyReferralCode = async (): Promise<ApiResponse<{ referral_code: string; referral_link: string }>> => {
+  const response = await apiClient.get('/api/referral/code');
+  return response.data;
+};
+
+// ===== 用量查询 API =====
+
+export interface TodayUsage {
+  limited: boolean;
+  daily_limit: number;
+  used_today: number;
+  remaining: number;
+  using_system_api: boolean;
+}
+
+/**
+ * 获取当前用户今日用量
+ */
+export const getTodayUsage = async (): Promise<ApiResponse<TodayUsage>> => {
+  const response = await apiClient.get<ApiResponse<TodayUsage>>('/api/usage/today');
   return response.data;
 };

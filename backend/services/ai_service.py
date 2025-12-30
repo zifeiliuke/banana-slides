@@ -589,12 +589,28 @@ def get_ai_service_for_user(user) -> AIService:
         ValueError: If free user hasn't configured their own API key
     """
     from models import UserSettings
+    from services.usage_service import UsageService
+
+    # 判断是否使用系统API
+    using_system_api = UsageService.is_using_system_api(user)
+
+    # 创建使用量记录回调
+    def usage_callback(tokens: int):
+        """记录文本生成使用量"""
+        if using_system_api:
+            try:
+                UsageService.record_text_generation(user, tokens)
+            except Exception as e:
+                logger.warning(f"Failed to record text generation usage: {e}")
 
     # Check if user is premium
     if user.is_premium_active():
         # Premium user: use global Settings (default behavior)
         logger.info(f"User {user.username} is premium, using global Settings")
-        return AIService()
+        ai_service = AIService()
+        # 设置使用量回调
+        ai_service.text_provider.set_usage_callback(usage_callback)
+        return ai_service
 
     # Free user: must use their own UserSettings
     logger.info(f"User {user.username} is free tier, checking UserSettings")
@@ -609,5 +625,8 @@ def get_ai_service_for_user(user) -> AIService:
     # Use user's own settings
     config_override = user_settings.to_ai_config()
     logger.info(f"Using UserSettings for user {user.username}")
-    return AIService(config_override=config_override)
+    ai_service = AIService(config_override=config_override)
+    # 设置使用量回调（免费用户使用自己的API时不会记录，因为 using_system_api 为 False）
+    ai_service.text_provider.set_usage_callback(usage_callback)
+    return ai_service
 

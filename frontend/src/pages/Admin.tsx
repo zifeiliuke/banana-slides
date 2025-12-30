@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Home, Users, CreditCard, Plus, Trash2, Crown, Ban, Check, Search, Copy } from 'lucide-react';
+import { Home, Users, CreditCard, Plus, Trash2, Crown, Ban, Check, Search, Copy, Settings, BarChart3 } from 'lucide-react';
 import { Button, Input, Card, Loading, useToast, useConfirm } from '@/components/shared';
 import { UserMenu } from '@/components/auth';
+import { SystemSettingsPanel } from '@/components/admin';
 import { useAuthStore } from '@/store/useAuthStore';
 import * as api from '@/api/endpoints';
 import type { User } from '@/types';
-import type { AdminStats, RechargeCode } from '@/api/endpoints';
+import type { AdminStats, RechargeCode, UserUsageStatsData, UserUsageStat } from '@/api/endpoints';
 
-type TabType = 'stats' | 'users' | 'codes';
+type TabType = 'stats' | 'users' | 'codes' | 'settings';
 
 export const Admin: React.FC = () => {
   const navigate = useNavigate();
@@ -21,6 +22,7 @@ export const Admin: React.FC = () => {
 
   // Stats
   const [stats, setStats] = useState<AdminStats | null>(null);
+  const [userUsageStats, setUserUsageStats] = useState<UserUsageStatsData | null>(null);
 
   // Users
   const [users, setUsers] = useState<User[]>([]);
@@ -61,9 +63,15 @@ export const Admin: React.FC = () => {
   const loadStats = async () => {
     setIsLoading(true);
     try {
-      const response = await api.getAdminStats();
-      if (response.data) {
-        setStats(response.data);
+      const [statsResponse, usageResponse] = await Promise.all([
+        api.getAdminStats(),
+        api.getUserUsageStats(),
+      ]);
+      if (statsResponse.data) {
+        setStats(statsResponse.data);
+      }
+      if (usageResponse.data) {
+        setUserUsageStats(usageResponse.data);
       }
     } catch (err) {
       show({ message: '加载统计数据失败', type: 'error' });
@@ -180,6 +188,30 @@ export const Admin: React.FC = () => {
     );
   };
 
+  const handleDeleteUser = async (targetUser: User) => {
+    confirm(
+      `确定要删除用户 ${targetUser.username} 吗？此操作不可恢复！`,
+      async () => {
+        try {
+          const response = await api.adminDeleteUser(targetUser.id);
+          if (response.success) {
+            show({ message: response.data?.message || '删除成功', type: 'success' });
+            loadUsers();
+            loadStats();
+          }
+        } catch (err: any) {
+          show({ message: err?.response?.data?.error?.message || '删除失败', type: 'error' });
+        }
+      },
+      {
+        title: '删除用户',
+        confirmText: '确定删除',
+        cancelText: '取消',
+        variant: 'danger',
+      }
+    );
+  };
+
   const handleCreateCodes = async () => {
     if (createCount <= 0 || createDays <= 0) {
       show({ message: '请输入有效的数量和天数', type: 'error' });
@@ -244,6 +276,14 @@ export const Admin: React.FC = () => {
     return new Date(dateStr).toLocaleString('zh-CN');
   };
 
+  const formatNumber = (num: number) => {
+    return num.toLocaleString('zh-CN');
+  };
+
+  const formatCurrency = (num: number) => {
+    return `¥${num.toFixed(2)}`;
+  };
+
   if (!user || user.role !== 'admin') {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -306,27 +346,163 @@ export const Admin: React.FC = () => {
           >
             充值码管理
           </Button>
+          <Button
+            variant={activeTab === 'settings' ? 'primary' : 'ghost'}
+            size="sm"
+            icon={<Settings size={16} />}
+            onClick={() => setActiveTab('settings')}
+          >
+            系统设置
+          </Button>
         </div>
 
         {/* 统计概览 */}
         {activeTab === 'stats' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card className="p-6">
-              <h3 className="text-sm text-gray-500 mb-2">总用户数</h3>
-              <p className="text-3xl font-bold text-gray-900">{stats?.users.total || 0}</p>
-            </Card>
-            <Card className="p-6">
-              <h3 className="text-sm text-gray-500 mb-2">高级会员</h3>
-              <p className="text-3xl font-bold text-yellow-600">{stats?.users.premium || 0}</p>
-            </Card>
-            <Card className="p-6">
-              <h3 className="text-sm text-gray-500 mb-2">未使用充值码</h3>
-              <p className="text-3xl font-bold text-green-600">{stats?.recharge_codes.unused || 0}</p>
-            </Card>
-            <Card className="p-6">
-              <h3 className="text-sm text-gray-500 mb-2">已使用充值码</h3>
-              <p className="text-3xl font-bold text-gray-400">{stats?.recharge_codes.used || 0}</p>
-            </Card>
+          <div className="space-y-6">
+            {/* 基础统计卡片 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card className="p-6">
+                <h3 className="text-sm text-gray-500 mb-2">总用户数</h3>
+                <p className="text-3xl font-bold text-gray-900">{stats?.users.total || 0}</p>
+              </Card>
+              <Card className="p-6">
+                <h3 className="text-sm text-gray-500 mb-2">高级会员</h3>
+                <p className="text-3xl font-bold text-yellow-600">{stats?.users.premium || 0}</p>
+              </Card>
+              <Card className="p-6">
+                <h3 className="text-sm text-gray-500 mb-2">未使用充值码</h3>
+                <p className="text-3xl font-bold text-green-600">{stats?.recharge_codes.unused || 0}</p>
+              </Card>
+              <Card className="p-6">
+                <h3 className="text-sm text-gray-500 mb-2">已使用充值码</h3>
+                <p className="text-3xl font-bold text-gray-400">{stats?.recharge_codes.used || 0}</p>
+              </Card>
+            </div>
+
+            {/* 用量统计汇总 */}
+            {userUsageStats && (
+              <>
+                <Card className="p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <BarChart3 size={20} />
+                    系统API消耗统计
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                    <div className="text-center p-4 bg-blue-50 rounded-lg">
+                      <p className="text-sm text-gray-500">图像生成次数</p>
+                      <p className="text-2xl font-bold text-blue-600">{formatNumber(userUsageStats.summary.total_image_count)}</p>
+                    </div>
+                    <div className="text-center p-4 bg-purple-50 rounded-lg">
+                      <p className="text-sm text-gray-500">文本调用次数</p>
+                      <p className="text-2xl font-bold text-purple-600">{formatNumber(userUsageStats.summary.total_text_count)}</p>
+                    </div>
+                    <div className="text-center p-4 bg-indigo-50 rounded-lg">
+                      <p className="text-sm text-gray-500">总Tokens消耗</p>
+                      <p className="text-2xl font-bold text-indigo-600">{formatNumber(userUsageStats.summary.total_tokens)}</p>
+                    </div>
+                    <div className="text-center p-4 bg-orange-50 rounded-lg">
+                      <p className="text-sm text-gray-500">图像费用</p>
+                      <p className="text-2xl font-bold text-orange-600">{formatCurrency(userUsageStats.summary.total_image_cost)}</p>
+                    </div>
+                    <div className="text-center p-4 bg-pink-50 rounded-lg">
+                      <p className="text-sm text-gray-500">文本费用</p>
+                      <p className="text-2xl font-bold text-pink-600">{formatCurrency(userUsageStats.summary.total_text_cost)}</p>
+                    </div>
+                    <div className="text-center p-4 bg-red-50 rounded-lg">
+                      <p className="text-sm text-gray-500">总消耗</p>
+                      <p className="text-2xl font-bold text-red-600">{formatCurrency(userUsageStats.summary.total_cost)}</p>
+                    </div>
+                  </div>
+                </Card>
+
+                {/* 用户消费柱状图 */}
+                {userUsageStats.user_stats.length > 0 && (
+                  <Card className="p-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">用户消费分布</h3>
+                    <div className="space-y-3">
+                      {userUsageStats.user_stats.slice(0, 10).map((stat, index) => {
+                        const maxCost = userUsageStats.user_stats[0]?.total_cost || 1;
+                        const percentage = (stat.total_cost / maxCost) * 100;
+                        return (
+                          <div key={stat.user_id} className="flex items-center gap-3">
+                            <span className="w-24 text-sm font-medium text-gray-700 truncate" title={stat.username}>
+                              {stat.username}
+                            </span>
+                            <div className="flex-1 h-6 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full transition-all duration-300"
+                                style={{ width: `${Math.max(percentage, 2)}%` }}
+                              />
+                            </div>
+                            <span className="w-20 text-sm font-medium text-gray-900 text-right">
+                              {formatCurrency(stat.total_cost)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </Card>
+                )}
+
+                {/* 用户使用量明细表 */}
+                <Card className="p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">用户使用量明细</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-gray-200 bg-gray-50">
+                          <th className="text-left py-3 px-3 text-sm font-medium text-gray-500">用户名</th>
+                          <th className="text-left py-3 px-3 text-sm font-medium text-gray-500">邮箱</th>
+                          <th className="text-left py-3 px-3 text-sm font-medium text-gray-500">等级</th>
+                          <th className="text-right py-3 px-3 text-sm font-medium text-gray-500">图像生成</th>
+                          <th className="text-right py-3 px-3 text-sm font-medium text-gray-500">文本调用</th>
+                          <th className="text-right py-3 px-3 text-sm font-medium text-gray-500">Tokens</th>
+                          <th className="text-right py-3 px-3 text-sm font-medium text-gray-500">图像费用</th>
+                          <th className="text-right py-3 px-3 text-sm font-medium text-gray-500">文本费用</th>
+                          <th className="text-right py-3 px-3 text-sm font-medium text-gray-500">总消耗</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {userUsageStats.user_stats.map((stat) => (
+                          <tr key={stat.user_id} className="border-b border-gray-100 hover:bg-gray-50">
+                            <td className="py-3 px-3 font-medium">{stat.username}</td>
+                            <td className="py-3 px-3 text-gray-500">{stat.email || '-'}</td>
+                            <td className="py-3 px-3">
+                              {stat.tier === 'premium' ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-yellow-100 text-yellow-700 rounded">
+                                  <Crown size={12} /> 高级
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">免费</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-3 text-right">{formatNumber(stat.image_generation_count)}</td>
+                            <td className="py-3 px-3 text-right">{formatNumber(stat.text_generation_count)}</td>
+                            <td className="py-3 px-3 text-right">{formatNumber(stat.total_tokens)}</td>
+                            <td className="py-3 px-3 text-right text-orange-600">{formatCurrency(stat.image_cost)}</td>
+                            <td className="py-3 px-3 text-right text-pink-600">{formatCurrency(stat.text_cost)}</td>
+                            <td className="py-3 px-3 text-right font-medium text-red-600">{formatCurrency(stat.total_cost)}</td>
+                          </tr>
+                        ))}
+                        {/* 汇总行 */}
+                        <tr className="bg-gray-50 font-medium">
+                          <td className="py-3 px-3" colSpan={3}>汇总</td>
+                          <td className="py-3 px-3 text-right">{formatNumber(userUsageStats.summary.total_image_count)}</td>
+                          <td className="py-3 px-3 text-right">{formatNumber(userUsageStats.summary.total_text_count)}</td>
+                          <td className="py-3 px-3 text-right">{formatNumber(userUsageStats.summary.total_tokens)}</td>
+                          <td className="py-3 px-3 text-right text-orange-600">{formatCurrency(userUsageStats.summary.total_image_cost)}</td>
+                          <td className="py-3 px-3 text-right text-pink-600">{formatCurrency(userUsageStats.summary.total_text_cost)}</td>
+                          <td className="py-3 px-3 text-right text-red-600">{formatCurrency(userUsageStats.summary.total_cost)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-4">
+                    * 费用计算规则：图像生成 ¥1.5/次，文本调用 ¥3.5/1M tokens。仅统计使用系统API的调用。
+                  </p>
+                </Card>
+              </>
+            )}
           </div>
         )}
 
@@ -421,14 +597,25 @@ export const Admin: React.FC = () => {
                               </Button>
                             )}
                             {u.role !== 'admin' && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleToggleActive(u)}
-                                className={u.is_active ? 'text-red-600 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}
-                              >
-                                {u.is_active ? '禁用' : '启用'}
-                              </Button>
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleToggleActive(u)}
+                                  className={u.is_active ? 'text-red-600 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}
+                                >
+                                  {u.is_active ? '禁用' : '启用'}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  icon={<Trash2 size={14} />}
+                                  onClick={() => handleDeleteUser(u)}
+                                  className="text-red-600 hover:bg-red-50"
+                                >
+                                  删除
+                                </Button>
+                              </>
                             )}
                           </div>
                         </td>
@@ -584,6 +771,9 @@ export const Admin: React.FC = () => {
             </div>
           </Card>
         )}
+
+        {/* 系统设置 */}
+        {activeTab === 'settings' && <SystemSettingsPanel />}
       </div>
 
       {/* 创建充值码弹窗 */}

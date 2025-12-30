@@ -6,6 +6,7 @@ from models import db, User, RechargeCode, PremiumHistory
 from utils import success_response, error_response, not_found, bad_request
 from middleware import login_required, get_current_user
 from datetime import datetime, timedelta
+from services.referral_service import ReferralService
 
 premium_bp = Blueprint('premium', __name__, url_prefix='/api/premium')
 
@@ -111,6 +112,14 @@ def redeem_code():
         db.session.add(history)
 
         db.session.commit()
+
+        # 处理邀请升级奖励（给邀请者发放奖励）
+        try:
+            ReferralService.process_premium_upgrade_referral(current_user)
+        except Exception as e:
+            # 邀请奖励处理失败不影响主流程
+            import logging
+            logging.warning(f"Failed to process premium upgrade referral: {e}")
 
         return success_response({
             'message': f'充值成功！已增加 {recharge_code.duration_days} 天会员时长',

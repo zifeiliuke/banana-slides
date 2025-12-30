@@ -13,30 +13,31 @@ logger = logging.getLogger(__name__)
 
 class GenAITextProvider(TextProvider):
     """Text generation using Google GenAI SDK"""
-    
+
     def __init__(self, api_key: str, api_base: str = None, model: str = "gemini-3-flash-preview"):
         """
         Initialize GenAI text provider
-        
+
         Args:
             api_key: Google API key
             api_base: API base URL (for proxies like aihubmix)
             model: Model name to use
         """
+        super().__init__()
         timeout_ms = int(get_config().GENAI_TIMEOUT * 1000)
-        
+
         # 构建 HttpOptions
         http_options = types.HttpOptions(
             base_url=api_base,
             timeout=timeout_ms
         ) if api_base else types.HttpOptions(timeout=timeout_ms)
-        
+
         self.client = genai.Client(
             http_options=http_options,
             api_key=api_key
         )
         self.model = model
-    
+
     @retry(
         stop=stop_after_attempt(get_config().GENAI_MAX_RETRIES + 1),
         wait=wait_exponential(multiplier=1, min=2, max=10)
@@ -44,11 +45,11 @@ class GenAITextProvider(TextProvider):
     def generate_text(self, prompt: str, thinking_budget: int = 1000) -> str:
         """
         Generate text using Google GenAI SDK
-        
+
         Args:
             prompt: The input prompt
             thinking_budget: Thinking budget for the model
-            
+
         Returns:
             Generated text
         """
@@ -59,4 +60,11 @@ class GenAITextProvider(TextProvider):
                 thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget),
             ),
         )
+
+        # 报告 tokens 使用量
+        if hasattr(response, 'usage_metadata') and response.usage_metadata:
+            total_tokens = getattr(response.usage_metadata, 'total_token_count', 0)
+            if total_tokens:
+                self._report_usage(total_tokens)
+
         return response.text

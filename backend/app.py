@@ -8,6 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy.exc import SQLAlchemyError
 from flask_migrate import Migrate
+from werkzeug.exceptions import BadRequest, HTTPException
 
 # Load environment variables from project root .env file
 _project_root = Path(__file__).parent.parent
@@ -18,10 +19,11 @@ from flask import Flask
 from flask_cors import CORS
 from models import db
 from config import Config
+from utils.response import error_response
 from controllers.material_controller import material_bp, material_global_bp
 from controllers.reference_file_controller import reference_file_bp
 from controllers.settings_controller import settings_bp
-from controllers import project_bp, page_bp, template_bp, user_template_bp, export_bp, file_bp, auth_bp, user_settings_bp, premium_bp, admin_bp
+from controllers import project_bp, page_bp, template_bp, user_template_bp, export_bp, file_bp, auth_bp, user_settings_bp, premium_bp, admin_bp, referral_bp, usage_bp
 
 
 def create_app():
@@ -82,6 +84,19 @@ def create_app():
     app.register_blueprint(user_settings_bp)
     app.register_blueprint(premium_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(referral_bp)
+    app.register_blueprint(usage_bp)
+
+    @app.errorhandler(BadRequest)
+    def handle_bad_request(e: BadRequest):
+        # 确保 400 也返回 JSON，避免前端只看到 “Request failed with status code 400”
+        return error_response('BAD_REQUEST', e.description, 400)
+
+    @app.errorhandler(HTTPException)
+    def handle_http_exception(e: HTTPException):
+        # 兜底：将常见 HTTP 异常统一为 JSON
+        code = f'HTTP_{e.code}'
+        return error_response(code, e.description, e.code or 500)
 
     with app.app_context():
         # Load settings from database and sync to app.config
@@ -165,6 +180,14 @@ def _load_settings_to_config(app):
         app.config['MAX_DESCRIPTION_WORKERS'] = settings.max_description_workers
         app.config['MAX_IMAGE_WORKERS'] = settings.max_image_workers
         logging.info(f"Loaded worker settings: desc={settings.max_description_workers}, img={settings.max_image_workers}")
+
+        # Load model settings
+        if settings.text_model:
+            app.config['TEXT_MODEL'] = settings.text_model
+            logging.info(f"Loaded TEXT_MODEL from settings: {settings.text_model}")
+        if settings.image_model:
+            app.config['IMAGE_MODEL'] = settings.image_model
+            logging.info(f"Loaded IMAGE_MODEL from settings: {settings.image_model}")
 
     except Exception as e:
         logging.warning(f"Could not load settings from database: {e}")

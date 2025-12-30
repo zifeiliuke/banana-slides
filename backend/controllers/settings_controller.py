@@ -6,6 +6,7 @@ from models import db, Settings
 from utils import success_response, error_response, bad_request
 from datetime import datetime, timezone
 from config import Config
+from middleware import admin_required
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,7 @@ settings_bp = Blueprint(
 
 # Prevent redirect issues when trailing slash is missing
 @settings_bp.route("/", methods=["GET"], strict_slashes=False)
+@admin_required
 def get_settings():
     """
     GET /api/settings - Get application settings
@@ -33,6 +35,7 @@ def get_settings():
 
 
 @settings_bp.route("/", methods=["PUT"], strict_slashes=False)
+@admin_required
 def update_settings():
     """
     PUT /api/settings - Update application settings
@@ -145,6 +148,7 @@ def update_settings():
 
 
 @settings_bp.route("/reset", methods=["POST"], strict_slashes=False)
+@admin_required
 def reset_settings():
     """
     POST /api/settings/reset - Reset settings to default values

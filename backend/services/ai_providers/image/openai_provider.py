@@ -3,7 +3,9 @@ OpenAI SDK implementation for image generation
 """
 import logging
 import base64
+import os
 import re
+import time
 import requests
 from io import BytesIO
 from typing import Optional, List
@@ -13,6 +15,67 @@ from .base import ImageProvider
 from config import get_config
 
 logger = logging.getLogger(__name__)
+
+# Image download settings
+# 注意: TUN 模式透明代理可能导致下载速度波动,使用较长的超时时间
+IMAGE_DOWNLOAD_TIMEOUT = 180  # seconds (adjusted for TUN mode transparency proxy)
+IMAGE_DOWNLOAD_MAX_RETRIES = 5  # 增加重试次数以应对网络波动
+IMAGE_DOWNLOAD_RETRY_DELAY = 3  # seconds between retries
+
+
+def _get_image_download_proxy() -> Optional[dict]:
+    """
+    Get HTTP proxy configuration for image downloads from environment
+
+    Environment Variables:
+        IMAGE_DOWNLOAD_PROXY: HTTP/HTTPS proxy URL (e.g., http://proxy:8080)
+
+    Returns:
+        Proxy dict for requests or None if not configured
+    """
+    proxy_url = os.getenv('IMAGE_DOWNLOAD_PROXY')
+    if proxy_url:
+        logger.info(f"Using proxy for image downloads: {proxy_url}")
+        return {
+            'http': proxy_url,
+            'https': proxy_url
+        }
+    return None
+
+
+def download_image_with_retry(url: str, timeout: int = IMAGE_DOWNLOAD_TIMEOUT,
+                              max_retries: int = IMAGE_DOWNLOAD_MAX_RETRIES) -> Optional[Image.Image]:
+    """
+    Download image from URL with retry mechanism and optional proxy support
+
+    Args:
+        url: Image URL to download
+        timeout: Request timeout in seconds
+        max_retries: Maximum number of retry attempts
+
+    Returns:
+        PIL Image object or None if failed
+    """
+    last_error = None
+    proxies = _get_image_download_proxy()
+
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Downloading image (attempt {attempt + 1}/{max_retries}): {url[:80]}...")
+            response = requests.get(url, timeout=timeout, stream=True, proxies=proxies)
+            response.raise_for_status()
+            image = Image.open(BytesIO(response.content))
+            image.load()  # Ensure image is fully loaded
+            logger.info(f"Successfully downloaded image: {image.size}, {image.mode}")
+            return image
+        except Exception as e:
+            last_error = e
+            logger.warning(f"Download attempt {attempt + 1}/{max_retries} failed: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(IMAGE_DOWNLOAD_RETRY_DELAY)
+
+    logger.error(f"Failed to download image after {max_retries} attempts: {last_error}")
+    return None
 
 
 class OpenAIImageProvider(ImageProvider):
@@ -140,12 +203,10 @@ class OpenAIImageProvider(ImageProvider):
                             logger.debug(f"Successfully extracted image from base64 data URL: {image.size}, {image.mode}")
                             return image
                         elif first_image.startswith('http://') or first_image.startswith('https://'):
-                            response = requests.get(first_image, timeout=30, stream=True)
-                            response.raise_for_status()
-                            image = Image.open(BytesIO(response.content))
-                            image.load()
-                            logger.debug(f"Successfully downloaded image from URL: {image.size}, {image.mode}")
-                            return image
+                            image = download_image_with_retry(first_image)
+                            if image:
+                                logger.debug(f"Successfully downloaded image from URL: {image.size}, {image.mode}")
+                                return image
                     elif isinstance(first_image, dict):
                         # OpenRouter format: {'type': 'image_url', 'image_url': {'url': 'data:image/...'}}
                         # Check for image_url format (OpenRouter standard)
@@ -162,13 +223,11 @@ class OpenAIImageProvider(ImageProvider):
                                     logger.debug(f"Successfully extracted image from image_url base64: {image.size}, {image.mode}")
                                     return image
                                 elif image_url.startswith('http://') or image_url.startswith('https://'):
-                                    # HTTP URL - download it
-                                    response = requests.get(image_url, timeout=30, stream=True)
-                                    response.raise_for_status()
-                                    image = Image.open(BytesIO(response.content))
-                                    image.load()
-                                    logger.debug(f"Successfully downloaded image from image_url: {image.size}, {image.mode}")
-                                    return image
+                                    # HTTP URL - download it with retry
+                                    image = download_image_with_retry(image_url)
+                                    if image:
+                                        logger.debug(f"Successfully downloaded image from image_url: {image.size}, {image.mode}")
+                                        return image
                         
                         # Fallback: Check for direct 'url' key
                         if 'url' in first_image:
@@ -180,12 +239,10 @@ class OpenAIImageProvider(ImageProvider):
                                 logger.debug(f"Successfully extracted image from direct url base64: {image.size}, {image.mode}")
                                 return image
                             elif image_url.startswith('http://') or image_url.startswith('https://'):
-                                response = requests.get(image_url, timeout=30, stream=True)
-                                response.raise_for_status()
-                                image = Image.open(BytesIO(response.content))
-                                image.load()
-                                logger.debug(f"Successfully downloaded image from direct url: {image.size}, {image.mode}")
-                                return image
+                                image = download_image_with_retry(image_url)
+                                if image:
+                                    logger.debug(f"Successfully downloaded image from direct url: {image.size}, {image.mode}")
+                                    return image
                         
                         # Fallback: Check for 'data' key
                         elif 'data' in first_image:
@@ -259,22 +316,34 @@ class OpenAIImageProvider(ImageProvider):
                 elif isinstance(message.content, str):
                     content_str = message.content
                     logger.debug(f"Response content (string): {content_str[:200] if len(content_str) > 200 else content_str}")
-                    
+
+                    # Try to extract Markdown base64 image first: ![...](data:image/...;base64,...)
+                    # This is faster than URL download, so check it first
+                    markdown_base64_pattern = r'!\[.*?\]\((data:image/[^;]+;base64,([A-Za-z0-9+/=]+))\)'
+                    markdown_base64_matches = re.findall(markdown_base64_pattern, content_str)
+                    if markdown_base64_matches:
+                        base64_data = markdown_base64_matches[0][1]  # Get the base64 part
+                        logger.debug(f"Found Markdown base64 image (length: {len(base64_data)})")
+                        try:
+                            image_data = base64.b64decode(base64_data)
+                            image = Image.open(BytesIO(image_data))
+                            logger.debug(f"Successfully extracted Markdown base64 image: {image.size}, {image.mode}")
+                            return image
+                        except Exception as decode_error:
+                            logger.warning(f"Failed to decode Markdown base64 image: {decode_error}")
+
                     # Try to extract Markdown image URL: ![...](url)
                     markdown_pattern = r'!\[.*?\]\((https?://[^\s\)]+)\)'
                     markdown_matches = re.findall(markdown_pattern, content_str)
                     if markdown_matches:
                         image_url = markdown_matches[0]  # Use the first image URL found
                         logger.debug(f"Found Markdown image URL: {image_url}")
-                        try:
-                            response = requests.get(image_url, timeout=30, stream=True)
-                            response.raise_for_status()
-                            image = Image.open(BytesIO(response.content))
-                            image.load()  # Ensure image is fully loaded
+                        image = download_image_with_retry(image_url)
+                        if image:
                             logger.debug(f"Successfully downloaded image from Markdown URL: {image.size}, {image.mode}")
                             return image
-                        except Exception as download_error:
-                            logger.warning(f"Failed to download image from Markdown URL: {download_error}")
+                        else:
+                            logger.warning(f"Failed to download image from Markdown URL after retries: {image_url}")
                     
                     # Try to extract plain URL (not in Markdown format)
                     url_pattern = r'(https?://[^\s\)\]]+\.(?:png|jpg|jpeg|gif|webp|bmp)(?:\?[^\s\)\]]*)?)'
@@ -282,15 +351,12 @@ class OpenAIImageProvider(ImageProvider):
                     if url_matches:
                         image_url = url_matches[0]
                         logger.debug(f"Found plain image URL: {image_url}")
-                        try:
-                            response = requests.get(image_url, timeout=30, stream=True)
-                            response.raise_for_status()
-                            image = Image.open(BytesIO(response.content))
-                            image.load()
+                        image = download_image_with_retry(image_url)
+                        if image:
                             logger.debug(f"Successfully downloaded image from plain URL: {image.size}, {image.mode}")
                             return image
-                        except Exception as download_error:
-                            logger.warning(f"Failed to download image from plain URL: {download_error}")
+                        else:
+                            logger.warning(f"Failed to download image from plain URL after retries: {image_url}")
                     
                     # Try to extract base64 data URL from string
                     base64_pattern = r'data:image/[^;]+;base64,([A-Za-z0-9+/=]+)'

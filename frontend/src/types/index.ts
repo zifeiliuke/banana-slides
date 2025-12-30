@@ -157,6 +157,8 @@ export interface RegisterRequest {
   username: string;
   password: string;
   email?: string;
+  verification_code?: string;
+  referral_code?: string;
 }
 
 // 认证响应
@@ -165,5 +167,4 @@ export interface AuthResponse {
   access_token: string;
   refresh_token: string;
 }
-
 

@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { LogIn, UserPlus, Eye, EyeOff } from 'lucide-react';
 import { Button, Input, useToast } from '@/components/shared';
 import { useAuthStore } from '@/store/useAuthStore';
+import { apiClient } from '@/api/client';
+import { getApiErrorMessage } from '@/utils/apiError';
 
 type AuthMode = 'login' | 'register';
 
@@ -17,8 +19,39 @@ export const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [email, setEmail] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [requireEmailVerification, setRequireEmailVerification] = useState(false);
+  const [isSendingCode, setIsSendingCode] = useState(false);
+  const [sendCooldownSeconds, setSendCooldownSeconds] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let timer: number | undefined;
+    if (sendCooldownSeconds > 0) {
+      timer = window.setInterval(() => {
+        setSendCooldownSeconds((prev) => Math.max(0, prev - 1));
+      }, 1000);
+    }
+    return () => {
+      if (timer) window.clearInterval(timer);
+    };
+  }, [sendCooldownSeconds]);
+
+  // 获取注册设置（例如是否要求邮箱验证）
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const response = await apiClient.get('/api/auth/registration-settings');
+        if (response.data?.success) {
+          setRequireEmailVerification(!!response.data.data?.require_email_verification);
+        }
+      } catch {
+        // 忽略：加载失败时默认不强制邮箱验证，提交注册时后端仍会校验并返回错误
+      }
+    };
+    void load();
+  }, []);
 
   // 如果已登录，重定向到首页
   useEffect(() => {
@@ -35,6 +68,11 @@ export const Login: React.FC = () => {
       setError(null);
     }
   }, [error, show, setError]);
+
+  const isValidEmail = (value: string): boolean => {
+    const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    return emailPattern.test(value);
+  };
 
   const validateForm = (): boolean => {
     setFormError(null);
@@ -60,6 +98,20 @@ export const Login: React.FC = () => {
     }
 
     if (mode === 'register') {
+      const trimmedEmail = email.trim().toLowerCase();
+      if (requireEmailVerification && !trimmedEmail) {
+        setFormError('请输入邮箱');
+        return false;
+      }
+      if (trimmedEmail && !isValidEmail(trimmedEmail)) {
+        setFormError('邮箱格式不正确');
+        return false;
+      }
+      if (requireEmailVerification && !verificationCode.trim()) {
+        setFormError('请输入验证码');
+        return false;
+      }
+
       if (password !== confirmPassword) {
         setFormError('两次输入的密码不一致');
         return false;
@@ -67,6 +119,36 @@ export const Login: React.FC = () => {
     }
 
     return true;
+  };
+
+  const handleSendVerificationCode = async () => {
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail) {
+      show({ message: '请输入邮箱', type: 'error' });
+      return;
+    }
+    if (!isValidEmail(trimmedEmail)) {
+      show({ message: '邮箱格式不正确', type: 'error' });
+      return;
+    }
+
+    setIsSendingCode(true);
+    try {
+      const response = await apiClient.post('/api/auth/send-verification', { email: trimmedEmail });
+      if (response.data?.success) {
+        show({ message: response.data?.message || '验证码已发送，请查收邮件', type: 'success' });
+        setSendCooldownSeconds(60);
+      } else {
+        show({ message: response.data?.message || '发送失败，请稍后重试', type: 'error' });
+      }
+    } catch (error: any) {
+      const message = getApiErrorMessage(error, '发送失败，请稍后重试');
+      show({ message, type: 'error' });
+      const match = message.match(/(\d+)\s*秒/);
+      if (match) setSendCooldownSeconds(parseInt(match[1], 10));
+    } finally {
+      setIsSendingCode(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -80,7 +162,12 @@ export const Login: React.FC = () => {
     if (mode === 'login') {
       success = await login({ username, password });
     } else {
-      success = await register({ username, password, email: email || undefined });
+      success = await register({
+        username,
+        password,
+        email: email.trim() ? email.trim().toLowerCase() : undefined,
+        verification_code: requireEmailVerification ? verificationCode.trim() : undefined,
+      });
     }
 
     if (success) {
@@ -98,6 +185,8 @@ export const Login: React.FC = () => {
     setFormError(null);
     setConfirmPassword('');
     setEmail('');
+    setVerificationCode('');
+    setSendCooldownSeconds(0);
   };
 
   return (
@@ -131,7 +220,7 @@ export const Login: React.FC = () => {
 
             {mode === 'register' && (
               <Input
-                label="邮箱（可选）"
+                label={requireEmailVerification ? '邮箱' : '邮箱（可选）'}
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -139,6 +228,30 @@ export const Login: React.FC = () => {
                 autoComplete="email"
                 disabled={isLoading}
               />
+            )}
+
+            {mode === 'register' && requireEmailVerification && (
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <Input
+                    label="验证码"
+                    type="text"
+                    value={verificationCode}
+                    onChange={(e) => setVerificationCode(e.target.value)}
+                    placeholder="请输入验证码"
+                    disabled={isLoading}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="shrink-0"
+                  disabled={isLoading || isSendingCode || sendCooldownSeconds > 0}
+                  onClick={handleSendVerificationCode}
+                >
+                  {sendCooldownSeconds > 0 ? `${sendCooldownSeconds}s` : '发送验证码'}
+                </Button>
+              </div>
             )}
 
             <div className="relative">

@@ -13,6 +13,7 @@ from models import db, Project, Page, PageImageVersion, Task
 from utils import success_response, error_response, not_found, bad_request
 from services import AIService, FileService, ProjectContext, get_ai_service_for_user
 from services.task_manager import task_manager, generate_single_page_image_task, edit_page_image_task
+from services.usage_service import UsageService, check_and_record_usage
 from middleware import login_required, get_current_user
 
 logger = logging.getLogger(__name__)
@@ -364,6 +365,12 @@ def generate_page_image(project_id, page_id):
 
         # Initialize services for user
         current_user = get_current_user()
+
+        # Check usage quota (only for system API users)
+        can_generate, remaining, quota_message = UsageService.check_image_generation_quota(current_user, 1)
+        if not can_generate:
+            return error_response('QUOTA_EXCEEDED', quota_message, 429)
+
         ai_service = get_ai_service_for_user(current_user)
         file_service = FileService(current_app.config['UPLOAD_FOLDER'])
 
@@ -452,6 +459,12 @@ def edit_page_image(project_id, page_id):
 
         # Initialize services for user
         current_user = get_current_user()
+
+        # Check usage quota (only for system API users)
+        can_generate, remaining, quota_message = UsageService.check_image_generation_quota(current_user, 1)
+        if not can_generate:
+            return error_response('QUOTA_EXCEEDED', quota_message, 429)
+
         ai_service = get_ai_service_for_user(current_user)
         file_service = FileService(current_app.config['UPLOAD_FOLDER'])
 

@@ -10,6 +10,7 @@ from .auth_controller import auth_bp
 from .user_settings_controller import user_settings_bp
 from .premium_controller import premium_bp
 from .admin_controller import admin_bp
+from .referral_controller import referral_bp, usage_bp
 
 __all__ = [
     'project_bp',
@@ -24,5 +25,7 @@ __all__ = [
     'user_settings_bp',
     'premium_bp',
     'admin_bp',
+    'referral_bp',
+    'usage_bp',
 ]
 
