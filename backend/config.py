@@ -61,8 +61,12 @@ class Config:
     # OpenAI 格式专用配置（当 AI_PROVIDER_FORMAT=openai 时使用）
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')  # 当 AI_PROVIDER_FORMAT=openai 时必须设置
     OPENAI_API_BASE = os.getenv('OPENAI_API_BASE', 'https://aihubmix.com/v1')
-    OPENAI_TIMEOUT = float(os.getenv('OPENAI_TIMEOUT', '300.0'))  # 增加到 5 分钟（生成清洁背景图需要很长时间）
-    OPENAI_MAX_RETRIES = int(os.getenv('OPENAI_MAX_RETRIES', '2'))  # 减少重试次数，避免过多重试导致累积超时
+    # 文本生成超时配置（响应较快，10秒足够）
+    OPENAI_TEXT_TIMEOUT = float(os.getenv('OPENAI_TEXT_TIMEOUT', '10.0'))
+    OPENAI_TEXT_MAX_RETRIES = int(os.getenv('OPENAI_TEXT_MAX_RETRIES', '3'))
+    # 图像生成超时配置（响应较慢，需要更长时间）
+    OPENAI_IMAGE_TIMEOUT = float(os.getenv('OPENAI_IMAGE_TIMEOUT', '90.0'))
+    OPENAI_IMAGE_MAX_RETRIES = int(os.getenv('OPENAI_IMAGE_MAX_RETRIES', '3'))
     
     # AI 模型配置
     TEXT_MODEL = os.getenv('TEXT_MODEL', 'gemini-3-flash-preview')

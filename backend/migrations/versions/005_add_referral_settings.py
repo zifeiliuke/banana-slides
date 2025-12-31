@@ -15,7 +15,7 @@ from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
 revision = '005_referral_settings'
-down_revision = '004_multi_user'
+down_revision = '007_merge_heads'
 branch_labels = None
 depends_on = None
 

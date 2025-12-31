@@ -10,7 +10,7 @@ import { Login } from './pages/Login';
 import { Admin } from './pages/Admin';
 import { useProjectStore } from './store/useProjectStore';
 import { useAuthStore } from './store/useAuthStore';
-import { useToast, GithubLink } from './components/shared';
+import { useToast } from './components/shared';
 import { AuthGuard } from './components/auth';
 
 function App() {
@@ -58,7 +58,6 @@ function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <ToastContainer />
-      <GithubLink />
     </BrowserRouter>
   );
 }

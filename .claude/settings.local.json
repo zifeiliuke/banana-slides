@@ -43,7 +43,10 @@
       "Bash(timeout 150 docker exec:*)",
       "Bash(timeout 90 docker exec banana-slides-backend /app/.venv/bin/python3 -c \"\nfrom openai import OpenAI\nimport requests\nimport time\nimport re\n\nclient = OpenAI\\(api_key=''sk-KxtYinRpTCoGr93Ca7LZQY4ukgpJmxEnimSh5kEZR4oj1Yjh'', base_url=''https://521api.com/v1''\\)\n\nprint\\(''生成简单图片...''\\)\nr = client.chat.completions.create\\(\n    model=''gemini-3-pro-image-preview-2k'',\n    messages=[{''role'': ''user'', ''content'': [{''type'': ''text'', ''text'': ''A simple blue square''}]}],\n    modalities=[''text'', ''image'']\n\\)\n\ncontent = r.choices[0].message.content\nmatch = re.search\\(r''https?://[^\\\\s\\\\\\)]+'', content\\)\nif match:\n    url = match.group\\(0\\)\n    print\\(f''URL: {url[:60]}...''\\)\n    print\\(''下载...''\\)\n    start = time.time\\(\\)\n    img = requests.get\\(url, timeout=120\\)\n    elapsed = time.time\\(\\) - start\n    size = len\\(img.content\\)\n    print\\(f''✅ 成功! {size} bytes in {elapsed:.1f}s = {size/elapsed/1024/1024:.2f} MB/s''\\)\nelse:\n    print\\(''无URL''\\)\n\")",
       "Bash(flask db:*)",
-      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiZjhkZTEwZWUtZjcwZC00MjdmLWE5MzAtZTk2MWNkNDkyNmJiIiwidXNlcm5hbWUiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsInRpZXIiOiJwcmVtaXVtIiwiZXhwIjoxNzY3MDkxMzI2LCJpYXQiOjE3NjcwODc3MjYsInR5cGUiOiJhY2Nlc3MifQ.bCsqH-Oj1xZb-deH_PCkr7mWplOK6-HEcZfgKSxxH8E\" curl -s \"http://localhost:5000/api/admin/usage/user-stats\" -H \"Authorization: Bearer $TOKEN\")"
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiZjhkZTEwZWUtZjcwZC00MjdmLWE5MzAtZTk2MWNkNDkyNmJiIiwidXNlcm5hbWUiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsInRpZXIiOiJwcmVtaXVtIiwiZXhwIjoxNzY3MDkxMzI2LCJpYXQiOjE3NjcwODc3MjYsInR5cGUiOiJhY2Nlc3MifQ.bCsqH-Oj1xZb-deH_PCkr7mWplOK6-HEcZfgKSxxH8E\" curl -s \"http://localhost:5000/api/admin/usage/user-stats\" -H \"Authorization: Bearer $TOKEN\")",
+      "Bash(grep:*)",
+      "Bash(paste:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiZjhkZTEwZWUtZjcwZC00MjdmLWE5MzAtZTk2MWNkNDkyNmJiIiwidXNlcm5hbWUiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsInRpZXIiOiJwcmVtaXVtIiwiZXhwIjoxNzY3MDk2MTkxLCJpYXQiOjE3NjcwOTI1OTEsInR5cGUiOiJhY2Nlc3MifQ.wGpwwsvLGlC-Ckmaq2QpzBF8NUJGZSk23Xyusm24hAk\")"
     ]
   }
 }

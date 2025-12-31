@@ -25,8 +25,8 @@ class OpenAITextProvider(TextProvider):
         self.client = OpenAI(
             api_key=api_key,
             base_url=api_base,
-            timeout=get_config().OPENAI_TIMEOUT,  # set timeout from config
-            max_retries=get_config().OPENAI_MAX_RETRIES  # set max retries from config
+            timeout=get_config().OPENAI_TEXT_TIMEOUT,  # 文本生成超时（默认10秒）
+            max_retries=get_config().OPENAI_TEXT_MAX_RETRIES  # 文本生成重试次数（默认3次）
         )
         self.model = model
 
