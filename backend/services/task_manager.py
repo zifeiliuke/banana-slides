@@ -454,7 +454,7 @@ def generate_images_task(task_id: str, project_id: str, ai_service, file_service
                 task.completed_at = datetime.utcnow()
                 db.session.commit()
                 logger.info(f"Task {task_id} COMPLETED - {completed} images generated, {failed} failed")
-            
+
             # Update project status
             from models import Project
             project = Project.query.get(project_id)
@@ -462,6 +462,17 @@ def generate_images_task(task_id: str, project_id: str, ai_service, file_service
                 project.status = 'COMPLETED'
                 db.session.commit()
                 logger.info(f"Project {project_id} status updated to COMPLETED")
+
+            # Record usage for batch image generation
+            if completed > 0 and project and project.user_id:
+                try:
+                    from services.usage_service import UsageService
+                    from models import User
+                    user = User.query.get(project.user_id)
+                    if user:
+                        UsageService.record_image_generation(user, completed)
+                except Exception as usage_error:
+                    logger.warning(f"Failed to record usage: {usage_error}")
         
         except Exception as e:
             # Mark task as failed
