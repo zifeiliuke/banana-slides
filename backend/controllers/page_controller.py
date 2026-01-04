@@ -12,6 +12,7 @@ from werkzeug.utils import secure_filename
 from models import db, Project, Page, PageImageVersion, Task
 from utils import success_response, error_response, not_found, bad_request
 from services import AIService, FileService, ProjectContext, get_ai_service_for_user
+from services.ai_service_manager import get_ai_service
 from services.task_manager import task_manager, generate_single_page_image_task, edit_page_image_task
 from services.usage_service import UsageService, check_and_record_usage
 from middleware import login_required, get_current_user

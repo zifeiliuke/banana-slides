@@ -12,7 +12,7 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Anionex/banana-slides?style=square)](https://github.com/Anionex/banana-slides/network)
 [![GitHub Watchers](https://img.shields.io/github/watchers/Anionex/banana-slides?style=square)](https://github.com/Anionex/banana-slides/watchers)
 
-[![Version](https://img.shields.io/badge/version-v0.1.0-4CAF50.svg)](https://github.com/Anionex/banana-slides)
+[![Version](https://img.shields.io/badge/version-v0.3.0-4CAF50.svg)](https://github.com/Anionex/banana-slides)
 ![Docker](https://img.shields.io/badge/Docker-Build-2496ED?logo=docker&logoColor=white)
 [![GitHub issues](https://img.shields.io/github/issues-raw/Anionex/banana-slides)](https://github.com/Anionex/banana-slides/issues)
 [![GitHub pull requests](https://img.shields.io/github/issues-pr-raw/Anionex/banana-slides)](https://github.com/Anionex/banana-slides/pulls)
@@ -115,10 +115,30 @@
 - **智能递归进行组件分析提取、文字提取、表格提取，最终得到可手动编辑的pptx**
 <img width="1000"  alt="image" src="https://github.com/user-attachments/assets/a85d2d48-1966-4800-a4bf-73d17f914062" />
 
+<br>
+
+**🌟和notebooklm slide deck功能对比**
+| 功能 | notebooklm | 本项目 | 
+| --- | --- | --- |
+| 页数上限 | 15页 | **无限制** | 
+| 二次编辑 | 不支持 | **框选编辑+口头编辑** |
+| 素材添加 | 生成后无法添加 | **生成后自由添加** |
+| 导出格式 | 仅支持导出为 PDF | **导出为PDF、(可编辑)pptx** |
+| 水印 | 免费版有水印 | **无水印，自由增删元素** |
+
+> 注：随着新功能添加,对比可能过时
+
+
 
 ## 🔥 近期更新
+- 【1-3】 : 可编辑pptx导出全面升级：
+  1. 支持最大程度还原图片中文字的字号、颜色、加粗等样式；
+  2. 支持了识别表格中的文字内容；
+  3. 更精确的文字大小和文字位置还原逻辑
+  4. 优化导出工作流，大大减少了导出后背景图残留文字的现象；
+- 支持页面多选逻辑，灵活选择需要生成和导出的具体页面。
+
 - 【12-27】: 加入了对无图片模板模式的支持和较高质量的文字预设，现在可以通过纯文字描述的方式来控制ppt页面风格
-- 【12-25】: https://github.com/Anionex/banana-slides/pull/82 支持了基于版面识别、局部重绘和递归分析的可编辑pptx导出方法，开发者可切换至该分支提前尝鲜⛱️
 - 【12-24】: main分支加入了基于nano-banana-pro背景提取的可编辑pptx导出方法（目前Beta）
 
 
@@ -133,8 +153,8 @@
 | ✅ 已完成 | 素材模块: 素材生成、上传等 |
 | ✅ 已完成 | 支持多种文件的上传+解析 |
 | ✅ 已完成 | 支持Vibe口头调整大纲和描述 |
-| ✅ 已完成 | 支持初步可编辑版pptx文件导出（mineru） |
-| 🔄 进行中 | 支持已生成图片的元素分割和进一步编辑（segment + inpaint） |
+| ✅ 已完成 | 初步支持可编辑版本pptx文件导出 |
+| 🔄 进行中 | 支持多层次、精确抠图的可编辑pptx导出 |
 | 🔄 进行中 | 网络搜索 |
 | 🔄 进行中 | Agent 模式 |
 | 🧭 规划中 | 优化前端加载速度 |
@@ -193,6 +213,9 @@ OPENAI_API_BASE=https://api.openai.com/v1
 # GOOGLE_APPLICATION_CREDENTIALS=./gcp-service-account.json
 ...
 ```
+
+**使用新版可编辑导出配置方法**: 在[百度智能云平台](https://console.bce.baidu.com/ai-engine/ocr/overview/index?type=1)中创建应用并获取API KEY，填写在.env文件中的BAIDU_OCR_API_KEY字段（有充足的免费使用额度）。
+
 
 <details>
   <summary>📒 使用 Vertex AI（GCP 免费额度）</summary>
@@ -502,7 +525,8 @@ banana-slides/
 
 欢迎提出新功能建议或反馈，本人也会~~佛系~~回答大家问题
 
-<img width="300" alt="image" src="https://github.com/user-attachments/assets/b37b6144-5152-4f30-9b90-0c0678374437" />
+<img width="301" alt="image" src="https://github.com/user-attachments/assets/57e6bae0-b127-4e01-8ccf-5669522b0162" />
+
 
 
 **常见问题**
@@ -581,7 +605,7 @@ banana-slides/
 <img width="240" alt="image" src="https://github.com/user-attachments/assets/fd7a286d-711b-445e-aecf-43e3fe356473" />
 
 感谢以下朋友对项目的无偿赞助支持：
-> @曹峥、@以年观日、@John、@azazo1、@刘聪NLP、@🍟、@苍何、@biubiu  
+> @雅俗共赏、@曹峥、@以年观日、@John、@azazo1、@刘聪NLP、@🍟、@苍何、@biubiu  
 > 如对赞助列表有疑问（如赞赏后没看到您的名字），可<a href="mailto:anionex@qq.com">联系作者</a>
  
 ## 📈 项目统计
