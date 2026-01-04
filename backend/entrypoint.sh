@@ -53,18 +53,9 @@ wait_for_db() {
     log_info "Waiting for database at ${host}:${port}..."
 
     while [ $attempt -le $max_attempts ]; do
-        if python3 -c "
-import socket
-import sys
-try:
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.settimeout(2)
-    s.connect(('${host}', ${port}))
-    s.close()
-    sys.exit(0)
-except:
-    sys.exit(1)
-" 2>/dev/null; then
+        # 使用 curl 测试 TCP 连接（更可靠的方式）
+        if curl -s --connect-timeout 2 "telnet://${host}:${port}" >/dev/null 2>&1 || \
+           timeout 2 bash -c "echo >/dev/tcp/${host}/${port}" 2>/dev/null; then
             log_info "Database is available!"
             return 0
         fi
