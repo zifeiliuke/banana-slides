@@ -74,6 +74,17 @@ class User(db.Model):
         """Check if user is admin"""
         return self.role == 'admin'
 
+    def get_effective_tier(self) -> str:
+        """
+        获取用户实际有效的会员等级
+
+        如果用户 tier 是 premium 但会员已过期，返回 'free'
+        否则返回数据库存储的 tier 值
+        """
+        if self.tier == 'premium' and not self.is_premium_active():
+            return 'free'
+        return self.tier
+
     def to_dict(self, include_sensitive=False):
         """Convert to dictionary"""
         data = {
@@ -82,7 +93,8 @@ class User(db.Model):
             'email': self.email,
             'email_verified': self.email_verified,
             'role': self.role,
-            'tier': self.tier,
+            'tier': self.get_effective_tier(),  # 返回实际有效的会员等级
+            'stored_tier': self.tier,  # 数据库存储的原始等级（管理用）
             'is_premium_active': self.is_premium_active(),
             'premium_expires_at': self.premium_expires_at.isoformat() if self.premium_expires_at else None,
             'is_active': self.is_active,

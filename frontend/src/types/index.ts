@@ -140,7 +140,8 @@ export interface User {
   username: string;
   email?: string;
   role: UserRole;
-  tier: UserTier;
+  tier: UserTier;  // 实际有效的会员等级（过期会员返回 'free'）
+  stored_tier?: UserTier;  // 数据库存储的原始等级（管理用）
   premium_expires_at?: string;
   is_premium_active?: boolean;
   is_active: boolean;

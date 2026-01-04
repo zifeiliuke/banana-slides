@@ -887,7 +887,8 @@ export const updateUserProfile = async (data: { email?: string }): Promise<ApiRe
 // ===== 会员 API =====
 
 export interface PremiumStatus {
-  tier: 'free' | 'premium';
+  tier: 'free' | 'premium';  // 实际有效的会员等级
+  stored_tier?: 'free' | 'premium';  // 数据库存储的原始等级
   is_premium_active: boolean;
   premium_expires_at?: string;
 }
@@ -1193,7 +1194,8 @@ export interface UserUsageStat {
   user_id: string;
   username: string;
   email: string;
-  tier: 'free' | 'premium';
+  tier: 'free' | 'premium';  // 实际有效的会员等级
+  stored_tier?: 'free' | 'premium';  // 数据库存储的原始等级
   image_generation_count: number;
   text_generation_count: number;
   total_tokens: number;

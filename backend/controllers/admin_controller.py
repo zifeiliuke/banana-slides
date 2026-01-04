@@ -844,7 +844,8 @@ def get_user_usage_stats():
                 'user_id': user.id,
                 'username': user.username,
                 'email': user.email,
-                'tier': user.tier,
+                'tier': user.get_effective_tier(),  # 实际有效的会员等级
+                'stored_tier': user.tier,  # 数据库存储的原始等级
                 'image_generation_count': image_count,
                 'text_generation_count': text_count,
                 'total_tokens': tokens,

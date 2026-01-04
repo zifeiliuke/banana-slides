@@ -21,7 +21,8 @@ def get_premium_status():
         current_user = get_current_user()
 
         return success_response({
-            'tier': current_user.tier,
+            'tier': current_user.get_effective_tier(),  # 实际有效的会员等级
+            'stored_tier': current_user.tier,  # 数据库存储的原始等级
             'is_premium_active': current_user.is_premium_active(),
             'premium_expires_at': current_user.premium_expires_at.isoformat() if current_user.premium_expires_at else None,
         })
@@ -123,7 +124,8 @@ def redeem_code():
 
         return success_response({
             'message': f'充值成功！已增加 {recharge_code.duration_days} 天会员时长',
-            'tier': current_user.tier,
+            'tier': current_user.get_effective_tier(),  # 实际有效的会员等级
+            'stored_tier': current_user.tier,  # 数据库存储的原始等级
             'is_premium_active': True,
             'premium_expires_at': new_expires_at.isoformat(),
             'duration_days': recharge_code.duration_days,

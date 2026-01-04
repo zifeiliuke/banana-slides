@@ -16,16 +16,39 @@ class Config:
     """Base configuration"""
     SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key-change-this')
 
-    # 数据库配置 - MySQL
-    MYSQL_HOST = os.getenv('MYSQL_HOST', '10.10.3.104')
+    # 数据库配置 - MySQL（必须通过环境变量配置）
+    MYSQL_HOST = os.getenv('MYSQL_HOST', '')
     MYSQL_PORT = os.getenv('MYSQL_PORT', '3306')
-    MYSQL_USER = os.getenv('MYSQL_USER', 'liuke')
-    MYSQL_PASSWORD = os.getenv('MYSQL_PASSWORD', '123067zcl')
-    MYSQL_DATABASE = os.getenv('MYSQL_DATABASE', 'banana-slides')
+    MYSQL_USER = os.getenv('MYSQL_USER', '')
+    MYSQL_PASSWORD = os.getenv('MYSQL_PASSWORD', '')
+    MYSQL_DATABASE = os.getenv('MYSQL_DATABASE', 'banana_slides')
 
-    SQLALCHEMY_DATABASE_URI = os.getenv(
-        'DATABASE_URL',
-        f'mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}?charset=utf8mb4'
+    # 构建数据库 URI：优先使用完整的 DATABASE_URL，否则使用分离的配置项
+    @classmethod
+    def get_database_uri(cls):
+        """获取数据库连接 URI"""
+        database_url = os.getenv('DATABASE_URL')
+        if database_url:
+            return database_url
+
+        host = cls.MYSQL_HOST
+        port = cls.MYSQL_PORT
+        user = cls.MYSQL_USER
+        password = cls.MYSQL_PASSWORD
+        database = cls.MYSQL_DATABASE
+
+        if not host or not user:
+            return None  # 配置不完整
+
+        return f'mysql+pymysql://{user}:{password}@{host}:{port}/{database}?charset=utf8mb4'
+
+    # 在类加载时构建 URI
+    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL') or (
+        f"mysql+pymysql://{os.getenv('MYSQL_USER', '')}:{os.getenv('MYSQL_PASSWORD', '')}@"
+        f"{os.getenv('MYSQL_HOST', '')}:{os.getenv('MYSQL_PORT', '3306')}/"
+        f"{os.getenv('MYSQL_DATABASE', 'banana_slides')}?charset=utf8mb4"
+        if os.getenv('MYSQL_HOST') and os.getenv('MYSQL_USER')
+        else None
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 

@@ -24,7 +24,7 @@ def generate_access_token(user: User) -> str:
         'user_id': user.id,
         'username': user.username,
         'role': user.role,
-        'tier': user.tier,
+        'tier': user.get_effective_tier(),  # 使用实际有效的会员等级
         'exp': datetime.now(timezone.utc) + JWT_ACCESS_TOKEN_EXPIRES,
         'iat': datetime.now(timezone.utc),
         'type': 'access'

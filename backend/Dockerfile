@@ -54,8 +54,9 @@ RUN if [ -f uv.lock ]; then \
 # 复制后端代码
 COPY backend/ ./backend/
 
-# 创建必要的目录
-RUN mkdir -p /app/backend/instance /app/uploads
+# 创建必要的目录并设置入口点脚本权限
+RUN mkdir -p /app/backend/instance /app/uploads && \
+    chmod +x /app/backend/entrypoint.sh
 
 ENV PYTHONPATH=/app
 ENV FLASK_APP=backend/app.py
@@ -66,6 +67,6 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD ["sh", "-c", "curl -f http://localhost:${PORT:-5000}/health || exit 1"]
 
-# 启动应用
-CMD ["sh", "-c", "uv run --directory backend alembic upgrade head && uv run --directory backend python app.py"]
+# 使用入口点脚本启动（包含数据库配置检查、等待、迁移和初始化）
+ENTRYPOINT ["/app/backend/entrypoint.sh"]
 
