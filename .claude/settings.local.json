@@ -46,7 +46,9 @@
       "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiZjhkZTEwZWUtZjcwZC00MjdmLWE5MzAtZTk2MWNkNDkyNmJiIiwidXNlcm5hbWUiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsInRpZXIiOiJwcmVtaXVtIiwiZXhwIjoxNzY3MDkxMzI2LCJpYXQiOjE3NjcwODc3MjYsInR5cGUiOiJhY2Nlc3MifQ.bCsqH-Oj1xZb-deH_PCkr7mWplOK6-HEcZfgKSxxH8E\" curl -s \"http://localhost:5000/api/admin/usage/user-stats\" -H \"Authorization: Bearer $TOKEN\")",
       "Bash(grep:*)",
       "Bash(paste:*)",
-      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiZjhkZTEwZWUtZjcwZC00MjdmLWE5MzAtZTk2MWNkNDkyNmJiIiwidXNlcm5hbWUiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsInRpZXIiOiJwcmVtaXVtIiwiZXhwIjoxNzY3MDk2MTkxLCJpYXQiOjE3NjcwOTI1OTEsInR5cGUiOiJhY2Nlc3MifQ.wGpwwsvLGlC-Ckmaq2QpzBF8NUJGZSk23Xyusm24hAk\")"
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiZjhkZTEwZWUtZjcwZC00MjdmLWE5MzAtZTk2MWNkNDkyNmJiIiwidXNlcm5hbWUiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsInRpZXIiOiJwcmVtaXVtIiwiZXhwIjoxNzY3MDk2MTkxLCJpYXQiOjE3NjcwOTI1OTEsInR5cGUiOiJhY2Nlc3MifQ.wGpwwsvLGlC-Ckmaq2QpzBF8NUJGZSk23Xyusm24hAk\")",
+      "Bash(mysql:*)",
+      "Bash(docker restart:*)"
     ]
   }
 }
