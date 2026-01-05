@@ -18,6 +18,51 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class ColoredSegment:
+    """
+    带颜色的文字片段
+    
+    用于表示一段文字及其颜色，支持 LaTeX 公式
+    """
+    text: str  # 文字内容（如果是公式则为 LaTeX 格式）
+    color_rgb: Tuple[int, int, int] = (0, 0, 0)  # RGB颜色 (0-255)
+    is_latex: bool = False  # 是否为 LaTeX 公式
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        result = {
+            'text': self.text,
+            'color': f"#{self.color_rgb[0]:02x}{self.color_rgb[1]:02x}{self.color_rgb[2]:02x}"
+        }
+        if self.is_latex:
+            result['is_latex'] = True
+        return result
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ColoredSegment':
+        """从字典创建实例"""
+        text = data.get('text', '')
+        color = data.get('color', '#000000')
+        is_latex = bool(data.get('is_latex', False))
+        
+        # 解析颜色
+        if isinstance(color, str):
+            color = color.lstrip('#')
+            if len(color) == 3:
+                color = ''.join(c * 2 for c in color)
+            try:
+                r = int(color[0:2], 16)
+                g = int(color[2:4], 16)
+                b = int(color[4:6], 16)
+                color_rgb = (r, g, b)
+            except (ValueError, IndexError):
+                color_rgb = (0, 0, 0)
+        else:
+            color_rgb = (0, 0, 0)
+        return cls(text=text, color_rgb=color_rgb, is_latex=is_latex)
+
+
+@dataclass
 class TextStyleResult:
     """
     文字样式数据结构
@@ -28,8 +73,12 @@ class TextStyleResult:
         字体大小不在此处提取，因为传入的是裁剪后的子图，无法准确估算。
         字体大小应由 PPTXBuilder.calculate_font_size 根据bbox计算。
     """
-    # 字体颜色 RGB (0-255)
+    # 字体颜色 RGB (0-255) - 默认颜色，用于整体颜色或兜底
     font_color_rgb: Tuple[int, int, int] = (0, 0, 0)
+    
+    # 带颜色的文字片段列表 - 支持一行文字多种颜色
+    # 如果有值，渲染时优先使用这个，文字内容也以这里的为准
+    colored_segments: List[ColoredSegment] = field(default_factory=list)
     
     # 是否粗体
     is_bold: bool = False
@@ -54,6 +103,8 @@ class TextStyleResult:
         result = asdict(self)
         # 将 tuple 转换为 list 以便 JSON 序列化
         result['font_color_rgb'] = list(self.font_color_rgb)
+        # 转换 colored_segments
+        result['colored_segments'] = [seg.to_dict() if isinstance(seg, ColoredSegment) else seg for seg in self.colored_segments]
         return result
     
     @classmethod
@@ -61,12 +112,31 @@ class TextStyleResult:
         """从字典创建实例"""
         if 'font_color_rgb' in data and isinstance(data['font_color_rgb'], list):
             data['font_color_rgb'] = tuple(data['font_color_rgb'])
+        # 转换 colored_segments
+        if 'colored_segments' in data:
+            data['colored_segments'] = [
+                ColoredSegment.from_dict(seg) if isinstance(seg, dict) else seg 
+                for seg in data['colored_segments']
+            ]
         return cls(**data)
     
     def get_hex_color(self) -> str:
-        """获取十六进制颜色值"""
+        """获取十六进制颜色值（默认颜色）"""
         r, g, b = self.font_color_rgb
         return f"#{r:02x}{g:02x}{b:02x}"
+    
+    def get_full_text(self) -> str:
+        """获取完整的文字内容（从 colored_segments 拼接）"""
+        if self.colored_segments:
+            return ''.join(seg.text for seg in self.colored_segments)
+        return ""
+    
+    def has_multi_color(self) -> bool:
+        """是否有多种颜色"""
+        if not self.colored_segments or len(self.colored_segments) <= 1:
+            return False
+        colors = set(seg.color_rgb for seg in self.colored_segments)
+        return len(colors) > 1
 
 
 class TextAttributeExtractor(ABC):
@@ -225,7 +295,7 @@ class CaptionModelTextAttributeExtractor(TextAttributeExtractor):
     
     def _call_vision_model(self, image: Image.Image, prompt: str, thinking_budget: int) -> Dict[str, Any]:
         """
-        调用视觉语言模型
+        调用视觉语言模型，使用 ai_service.generate_json_with_image（带重试机制）
         
         Args:
             image: PIL Image对象
@@ -236,7 +306,7 @@ class CaptionModelTextAttributeExtractor(TextAttributeExtractor):
             解析后的JSON结果
         """
         import tempfile
-        import json
+        import os
         
         # 保存临时图片文件
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
@@ -244,32 +314,25 @@ class CaptionModelTextAttributeExtractor(TextAttributeExtractor):
             image.save(tmp_path)
         
         try:
-            # 使用text_provider的generate_with_image方法（如果支持）
-            # 或者回退到generate_text方法
-            if hasattr(self.ai_service.text_provider, 'generate_with_image'):
-                response_text = self.ai_service.text_provider.generate_with_image(
-                    prompt=prompt,
-                    image_path=tmp_path,
-                    thinking_budget=thinking_budget
-                )
-            elif hasattr(self.ai_service.text_provider, 'generate_text_with_images'):
-                response_text = self.ai_service.text_provider.generate_text_with_images(
-                    prompt=prompt,
-                    images=[tmp_path],
-                    thinking_budget=thinking_budget
-                )
-            else:
-                # 回退方案：使用基础的generate_text
-                # 但这可能无法处理图片，所以会返回默认结果
-                logger.warning("text_provider不支持图片输入，使用默认结果")
-                return {}
-            
-            # 清理响应文本
-            cleaned_text = response_text.strip().strip("```json").strip("```").strip()
-            return json.loads(cleaned_text)
+            # 使用 ai_service.generate_json_with_image（带重试机制）
+            result = self.ai_service.generate_json_with_image(
+                prompt=prompt,
+                image_path=tmp_path,
+                thinking_budget=thinking_budget
+            )
+            return result if isinstance(result, dict) else {}
+        
+        except ValueError as e:
+            # text_provider 不支持图片输入
+            logger.warning(f"text_provider不支持图片输入: {e}")
+            return {}
+        
+        except Exception as e:
+            # JSON 解析失败（重试3次后仍失败）
+            logger.error(f"生成JSON失败（已重试3次）: {e}")
+            return {}
         
         finally:
-            import os
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
     
@@ -307,7 +370,9 @@ class CaptionModelTextAttributeExtractor(TextAttributeExtractor):
         解析AI返回的JSON结果
         
         Args:
-            result_json: AI返回的JSON字典
+            result_json: AI返回的JSON字典，支持两种格式：
+                - 新格式：包含 colored_segments 数组（文字-颜色对）
+                - 旧格式：包含 font_color 单一颜色
         
         Returns:
             TextStyleResult对象
@@ -316,12 +381,25 @@ class CaptionModelTextAttributeExtractor(TextAttributeExtractor):
             return TextStyleResult(confidence=0.0)
         
         try:
-            # 解析颜色（十六进制格式）
-            font_color_hex = result_json.get('font_color', '#000000')
-            if isinstance(font_color_hex, str):
-                font_color_rgb = self._hex_to_rgb(font_color_hex)
+            # 解析 colored_segments（新格式：支持一行多颜色）
+            colored_segments = []
+            segments_data = result_json.get('colored_segments', [])
+            
+            if segments_data and isinstance(segments_data, list):
+                for seg in segments_data:
+                    if isinstance(seg, dict):
+                        colored_segments.append(ColoredSegment.from_dict(seg))
+            
+            # 计算默认颜色（从 segments 取第一个，或用旧格式的 font_color）
+            if colored_segments:
+                font_color_rgb = colored_segments[0].color_rgb
             else:
-                font_color_rgb = (0, 0, 0)
+                # 兼容旧格式
+                font_color_hex = result_json.get('font_color', '#000000')
+                if isinstance(font_color_hex, str):
+                    font_color_rgb = self._hex_to_rgb(font_color_hex)
+                else:
+                    font_color_rgb = (0, 0, 0)
             
             # 解析布尔值
             is_bold = bool(result_json.get('is_bold', False))
@@ -335,6 +413,7 @@ class CaptionModelTextAttributeExtractor(TextAttributeExtractor):
             
             return TextStyleResult(
                 font_color_rgb=font_color_rgb,
+                colored_segments=colored_segments,
                 is_bold=is_bold,
                 is_italic=is_italic,
                 is_underline=is_underline,
@@ -407,39 +486,33 @@ class CaptionModelTextAttributeExtractor(TextAttributeExtractor):
             # 构建 prompt
             prompt = get_batch_text_attribute_extraction_prompt(text_elements_json)
             
-            # 调用视觉语言模型
+            # 调用 ai_service.generate_json_with_image（带重试机制）
             try:
-                if hasattr(self.ai_service.text_provider, 'generate_with_image'):
-                    response_text = self.ai_service.text_provider.generate_with_image(
-                        prompt=prompt,
-                        image_path=tmp_path,
-                        thinking_budget=thinking_budget
-                    )
-                elif hasattr(self.ai_service.text_provider, 'generate_text_with_images'):
-                    response_text = self.ai_service.text_provider.generate_text_with_images(
-                        prompt=prompt,
-                        images=[tmp_path],
-                        thinking_budget=thinking_budget
-                    )
+                result = self.ai_service.generate_json_with_image(
+                    prompt=prompt,
+                    image_path=tmp_path,
+                    thinking_budget=thinking_budget
+                )
+                
+                # 确保结果是列表
+                if isinstance(result, list):
+                    result_list = result
+                elif isinstance(result, dict):
+                    # 如果返回的是字典，尝试获取列表
+                    result_list = result.get('results', [result])
                 else:
-                    logger.warning("text_provider不支持图片输入，无法使用批量提取")
-                    return {}
-                
-                # 清理响应文本并解析JSON
-                cleaned_text = response_text.strip()
-                # 移除可能的 markdown 代码块标记
-                if cleaned_text.startswith("```json"):
-                    cleaned_text = cleaned_text[7:]
-                if cleaned_text.startswith("```"):
-                    cleaned_text = cleaned_text[3:]
-                if cleaned_text.endswith("```"):
-                    cleaned_text = cleaned_text[:-3]
-                cleaned_text = cleaned_text.strip()
-                
-                result_list = json.loads(cleaned_text)
+                    result_list = []
                 
                 # 解析结果
                 return self._parse_batch_result(result_list, text_elements)
+            
+            except ValueError as e:
+                logger.warning(f"text_provider不支持图片输入: {e}")
+                return {}
+            
+            except Exception as e:
+                logger.error(f"批量提取JSON生成失败（已重试3次）: {e}")
+                return {}
                 
             finally:
                 if need_cleanup:
@@ -532,7 +605,7 @@ class TextAttributeExtractorRegistry:
     """
     
     # 预定义的元素类型分组
-    TEXT_TYPES = {'text', 'title', 'paragraph', 'heading', 'header', 'footer'}
+    TEXT_TYPES = {'text', 'title', 'paragraph', 'heading', 'header', 'footer', 'list'}
     TABLE_TEXT_TYPES = {'table_cell'}
     
     def __init__(self):

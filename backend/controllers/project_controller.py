@@ -289,6 +289,12 @@ def update_project(project_id):
         if 'template_style' in data:
             project.template_style = data['template_style']
         
+        # Update export settings if provided
+        if 'export_extractor_method' in data:
+            project.export_extractor_method = data['export_extractor_method']
+        if 'export_inpaint_method' in data:
+            project.export_inpaint_method = data['export_inpaint_method']
+        
         # Update page order if provided
         if 'pages_order' in data:
             pages_order = data['pages_order']

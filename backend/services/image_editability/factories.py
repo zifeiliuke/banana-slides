@@ -493,6 +493,8 @@ class ServiceConfig:
         ai_service: Optional[Any] = None,
         use_hybrid_extractor: bool = True,
         use_hybrid_inpaint: bool = True,
+        extractor_method: Optional[str] = None,  # 'mineru' 或 'hybrid'，优先于 use_hybrid_extractor
+        inpaint_method: Optional[str] = None,    # 'generative', 'baidu', 'hybrid'，优先于 use_hybrid_inpaint
         **kwargs
     ) -> 'ServiceConfig':
         """
@@ -521,8 +523,10 @@ class ServiceConfig:
             mineru_api_base: MinerU API base URL（可选，默认从 Flask config 获取）
             upload_folder: 上传文件夹路径（可选，默认从 Flask config 获取）
             ai_service: AI服务实例（可选，用于生成式重绘）
-            use_hybrid_extractor: 是否使用混合提取器（默认True）
-            use_hybrid_inpaint: 是否使用混合Inpaint（百度修复+生成式画质提升）（默认True）
+            use_hybrid_extractor: 是否使用混合提取器（默认True，会被 extractor_method 覆盖）
+            use_hybrid_inpaint: 是否使用混合Inpaint（默认True，会被 inpaint_method 覆盖）
+            extractor_method: 组件提取方法，'mineru' 或 'hybrid'（优先于 use_hybrid_extractor）
+            inpaint_method: 背景修复方法，'generative', 'baidu', 'hybrid'（优先于 use_hybrid_inpaint）
             **kwargs: 其他配置参数
                 - max_depth: 最大递归深度（默认1）
                 - min_image_size: 最小图片尺寸（默认200）
@@ -537,6 +541,10 @@ class ServiceConfig:
         Raises:
             ValueError: 如果 mineru_token 未配置
         """
+        # 处理新参数：extractor_method 优先于 use_hybrid_extractor
+        if extractor_method is not None:
+            use_hybrid_extractor = (extractor_method == 'hybrid')
+            logger.info(f"extractor_method={extractor_method} -> use_hybrid_extractor={use_hybrid_extractor}")
         # 自动从 Flask config 获取配置
         from flask import current_app, has_app_context
         
@@ -605,8 +613,16 @@ class ServiceConfig:
         # 创建Inpaint提供者
         inpaint_registry = InpaintProviderRegistry()
         
-        if use_hybrid_inpaint:
-            # 尝试创建混合Inpaint提供者（百度修复 + 生成式画质提升）
+        # 处理 inpaint_method 参数（优先于 use_hybrid_inpaint）
+        effective_inpaint_method = inpaint_method
+        if effective_inpaint_method is None:
+            # 向后兼容：根据 use_hybrid_inpaint 转换
+            effective_inpaint_method = 'hybrid' if use_hybrid_inpaint else 'generative'
+        
+        logger.info(f"inpaint_method={effective_inpaint_method}")
+        
+        if effective_inpaint_method == 'hybrid':
+            # 混合Inpaint提供者（百度修复 + 生成式画质提升）
             hybrid_inpaint = InpaintProviderFactory.create_hybrid_inpaint_provider(
                 ai_service=ai_service,
                 enhance_quality=kwargs.get('enhance_quality', True)
@@ -622,7 +638,23 @@ class ServiceConfig:
                 )
                 inpaint_registry.register_default(generative_provider)
                 logger.warning("⚠️ 混合Inpaint创建失败，回退到GenerativeEdit")
-        else:
+        
+        elif effective_inpaint_method == 'baidu':
+            # 只用百度图像修复（不使用生成式模型，低成本）
+            baidu_inpaint = InpaintProviderFactory.create_baidu_inpaint_provider()
+            
+            if baidu_inpaint:
+                inpaint_registry.register_default(baidu_inpaint)
+                logger.info("✅ 百度Inpaint提供者已创建（纯百度修复）")
+            else:
+                # 回退到生成式
+                generative_provider = InpaintProviderFactory.create_generative_edit_provider(
+                    ai_service=ai_service
+                )
+                inpaint_registry.register_default(generative_provider)
+                logger.warning("⚠️ 百度Inpaint创建失败，回退到GenerativeEdit")
+        
+        else:  # 'generative' 或其他
             # 使用纯生成式重绘
             generative_provider = InpaintProviderFactory.create_generative_edit_provider(
                 ai_service=ai_service

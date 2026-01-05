@@ -16,6 +16,8 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Dict
 from PIL import Image
 
+from utils.mask_utils import create_mask_from_bboxes
+
 logger = logging.getLogger(__name__)
 
 
@@ -257,8 +259,11 @@ class BaiduInpaintProvider(InpaintProvider):
                 logger.info("BaiduInpaintProvider: 修复完成")
             else:
                 logger.warning("BaiduInpaintProvider: 修复返回空结果")
+                return None
             
-            return result_image
+            # 合并原图和修复后的图片，只取bboxes区域的修复结果（不扩展，避免影响bbox外的区域）
+            mask = create_mask_from_bboxes(image.size, bboxes, expand_pixels=0)
+            return Image.composite(result_image, image, mask.convert('L'))
         
         except Exception as e:
             logger.error(f"BaiduInpaintProvider处理失败: {e}", exc_info=True)
@@ -469,7 +474,7 @@ class InpaintProviderRegistry:
     """
     
     # 预定义的元素类型分组
-    TEXT_TYPES = {'text', 'title', 'paragraph', 'header', 'footer'}
+    TEXT_TYPES = {'text', 'title', 'paragraph', 'header', 'footer', 'list'}
     TABLE_TYPES = {'table', 'table_cell'}
     IMAGE_TYPES = {'image', 'figure', 'chart', 'diagram'}
     

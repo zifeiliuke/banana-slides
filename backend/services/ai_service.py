@@ -114,7 +114,7 @@ class AIService:
             text: Markdown 文本，可能包含 ![](url) 格式的图片
             
         Returns:
-            图片 URL 列表（包括 http/https URL 和 /files/mineru/ 开头的本地路径）
+            图片 URL 列表（包括 http/https URL 和 /files/ 开头的本地路径）
         """
         if not text:
             return []
@@ -123,11 +123,11 @@ class AIService:
         pattern = r'!\[.*?\]\((.*?)\)'
         matches = re.findall(pattern, text)
         
-        # 过滤掉空字符串，支持 http/https URL 和 /files/mineru/ 开头的本地路径
+        # 过滤掉空字符串，支持 http/https URL 和 /files/ 开头的本地路径（包括 mineru、materials 等）
         urls = []
         for url in matches:
             url = url.strip()
-            if url and (url.startswith('http://') or url.startswith('https://') or url.startswith('/files/mineru/')):
+            if url and (url.startswith('http://') or url.startswith('https://') or url.startswith('/files/')):
                 urls.append(url)
         
         return urls
@@ -190,6 +190,52 @@ class AIService:
             return json.loads(cleaned_text)
         except json.JSONDecodeError as e:
             logger.warning(f"JSON解析失败，将重新生成。原始文本: {cleaned_text[:200]}... 错误: {str(e)}")
+            raise
+    
+    @retry(
+        stop=stop_after_attempt(3),
+        retry=retry_if_exception_type((json.JSONDecodeError, ValueError)),
+        reraise=True
+    )
+    def generate_json_with_image(self, prompt: str, image_path: str, thinking_budget: int = 1000) -> Union[Dict, List]:
+        """
+        带图片输入的JSON生成，如果解析失败则重新生成（最多重试3次）
+        
+        Args:
+            prompt: 生成提示词
+            image_path: 图片文件路径
+            thinking_budget: 思考预算
+            
+        Returns:
+            解析后的JSON对象（字典或列表）
+            
+        Raises:
+            json.JSONDecodeError: JSON解析失败（重试3次后仍失败）
+            ValueError: text_provider 不支持图片输入
+        """
+        # 调用AI生成文本（带图片）
+        if hasattr(self.text_provider, 'generate_with_image'):
+            response_text = self.text_provider.generate_with_image(
+                prompt=prompt,
+                image_path=image_path,
+                thinking_budget=thinking_budget
+            )
+        elif hasattr(self.text_provider, 'generate_text_with_images'):
+            response_text = self.text_provider.generate_text_with_images(
+                prompt=prompt,
+                images=[image_path],
+                thinking_budget=thinking_budget
+            )
+        else:
+            raise ValueError("text_provider 不支持图片输入")
+        
+        # 清理响应文本：移除markdown代码块标记和多余空白
+        cleaned_text = response_text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        
+        try:
+            return json.loads(cleaned_text)
+        except json.JSONDecodeError as e:
+            logger.warning(f"JSON解析失败（带图片），将重新生成。原始文本: {cleaned_text[:200]}... 错误: {str(e)}")
             raise
     
     @staticmethod

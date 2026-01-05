@@ -19,6 +19,15 @@ export interface ExportTask {
     percent?: number;
     current_step?: string;
     messages?: string[];
+    warnings?: string[];  // 导出警告信息
+    warning_details?: {   // 警告详细信息
+      style_extraction_failed?: Array<{ element_id: string; reason: string }>;
+      text_render_failed?: Array<{ text: string; reason: string }>;
+      image_add_failed?: Array<{ path: string; reason: string }>;
+      json_parse_failed?: Array<{ context: string; reason: string }>;
+      other_warnings?: string[];
+      total_warnings?: number;
+    };
   };
   downloadUrl?: string;
   filename?: string;
@@ -36,6 +45,7 @@ interface ExportTasksState {
   removeTask: (id: string) => void;
   clearCompleted: () => void;
   pollTask: (id: string, projectId: string, taskId: string) => Promise<void>;
+  restoreActiveTasks: () => void; // 恢复正在进行的任务并重新开始轮询
 }
 
 export const useExportTasksStore = create<ExportTasksState>()(
@@ -139,7 +149,7 @@ export const useExportTasksStore = create<ExportTasksState>()(
               updates.errorMessage = task.error_message || task.error || '导出失败';
               updates.completedAt = new Date().toISOString();
               get().updateTask(id, updates);
-            } else if (task.status === 'PENDING' || task.status === 'RUNNING') {
+            } else if (task.status === 'PENDING' || task.status === 'RUNNING' || task.status === 'PROCESSING') {
               get().updateTask(id, updates);
               // Continue polling
               setTimeout(poll, 2000);
@@ -156,14 +166,30 @@ export const useExportTasksStore = create<ExportTasksState>()(
 
         await poll();
       },
+
+      restoreActiveTasks: () => {
+        // 恢复所有正在进行的任务并重新开始轮询
+        const state = get();
+        const activeTasks = state.tasks.filter(
+          task => task.status === 'PENDING' || task.status === 'PROCESSING' || task.status === 'RUNNING'
+        );
+        
+        if (activeTasks.length > 0) {
+          console.log(`[ExportTasksStore] 恢复 ${activeTasks.length} 个正在进行的任务`);
+          activeTasks.forEach(task => {
+            // 重新开始轮询
+            state.pollTask(task.id, task.projectId, task.taskId).catch(err => {
+              console.error(`[ExportTasksStore] 恢复任务 ${task.id} 失败:`, err);
+            });
+          });
+        }
+      },
     }),
     {
       name: 'export-tasks-storage',
       partialize: (state) => ({
-        // Only persist completed tasks
-        tasks: state.tasks.filter(
-          (task) => task.status === 'COMPLETED' || task.status === 'FAILED'
-        ).slice(0, 10),
+        // Persist all tasks (including active ones) so they can be restored after page refresh
+        tasks: state.tasks.slice(0, 20), // Keep max 20 tasks
       }),
     }
   )

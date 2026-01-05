@@ -165,7 +165,7 @@ class HybridElementExtractor(ElementExtractor):
     # 元素类型分类
     IMAGE_TYPES = {'image', 'figure', 'chart', 'diagram'}
     TABLE_TYPES = {'table', 'table_cell'}
-    TEXT_TYPES = {'text', 'title', 'paragraph', 'header', 'footer'}
+    TEXT_TYPES = {'text', 'title', 'paragraph', 'header', 'footer', 'list'}
     
     def __init__(
         self,
