@@ -1,12 +1,13 @@
 """
-Admin Controller - handles admin-only operations
+Admin Controller - handles admin-only operations (积分版)
 """
 from flask import Blueprint, request
-from models import db, User, RechargeCode, PremiumHistory, SystemSettings, Referral, DailyUsage
+from models import db, User, RechargeCode, PremiumHistory, SystemSettings, Referral, DailyUsage, PointsBalance, PointsTransaction
 from utils import success_response, error_response, not_found, bad_request
 from middleware import login_required, get_current_user
-from datetime import datetime, timedelta, date
+from datetime import datetime, timezone, timedelta, date
 from functools import wraps
+from services.points_service import PointsService
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 
@@ -99,11 +100,74 @@ def get_user(user_id):
 @admin_required
 def grant_premium(user_id):
     """
-    POST /api/admin/users/{user_id}/grant-premium - 给用户授予会员
+    POST /api/admin/users/{user_id}/grant-premium - 给用户发放积分
 
     Body:
     {
-        "duration_days": 30,
+        "points": 500,              // 积分数量
+        "expire_days": null,        // 有效期天数，null表示永不过期
+        "note": "可选备注"
+    }
+
+    兼容旧参数（会自动转换）:
+    {
+        "duration_days": 30         // 会按 1天=200积分 转换
+    }
+    """
+    try:
+        user = User.query.get(user_id)
+        if not user:
+            return not_found('User')
+
+        data = request.get_json() or {}
+        points = data.get('points')
+        expire_days = data.get('expire_days')
+        note = data.get('note', '')
+
+        # 兼容旧参数
+        if not points and data.get('duration_days'):
+            points = data.get('duration_days') * 200  # 1天=200积分
+            expire_days = 30  # 默认30天有效期
+
+        if not points or points <= 0:
+            return bad_request("points 必须大于 0")
+
+        current_admin = get_current_user()
+
+        # 发放积分
+        balance = PointsService.admin_grant_points(
+            user_id=user.id,
+            amount=points,
+            admin_id=current_admin.id,
+            note=note or '管理员发放',
+            expire_days=expire_days
+        )
+
+        db.session.commit()
+
+        return success_response({
+            'message': f'已为用户 {user.username} 发放 {points} 积分',
+            'points_added': points,
+            'expires_at': balance.expires_at.isoformat() if balance.expires_at else None,
+            'user': user.to_dict(),
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return error_response('SERVER_ERROR', str(e), 500)
+
+
+@admin_bp.route('/users/<user_id>/grant-points', methods=['POST'])
+@login_required
+@admin_required
+def grant_points(user_id):
+    """
+    POST /api/admin/users/{user_id}/grant-points - 给用户发放积分（新接口）
+
+    Body:
+    {
+        "points": 500,
+        "expire_days": null,
         "note": "可选备注"
     }
     """
@@ -113,40 +177,81 @@ def grant_premium(user_id):
             return not_found('User')
 
         data = request.get_json() or {}
-        duration_days = data.get('duration_days')
+        points = data.get('points')
+        expire_days = data.get('expire_days')
         note = data.get('note', '')
 
-        if not duration_days or duration_days <= 0:
-            return bad_request("duration_days 必须大于 0")
+        if not points or points <= 0:
+            return bad_request("points 必须大于 0")
 
         current_admin = get_current_user()
-        now = datetime.utcnow()
 
-        # 计算新的到期时间
-        if user.tier == 'premium' and user.premium_expires_at and user.premium_expires_at > now:
-            new_expires_at = user.premium_expires_at + timedelta(days=duration_days)
-        else:
-            new_expires_at = now + timedelta(days=duration_days)
-
-        # 更新用户
-        user.tier = 'premium'
-        user.premium_expires_at = new_expires_at
-        user.updated_at = now
-
-        # 记录历史
-        history = PremiumHistory(
+        balance = PointsService.admin_grant_points(
             user_id=user.id,
-            action='admin_grant',
-            duration_days=duration_days,
+            amount=points,
             admin_id=current_admin.id,
-            note=note,
+            note=note or '管理员发放',
+            expire_days=expire_days
         )
-        db.session.add(history)
 
         db.session.commit()
 
         return success_response({
-            'message': f'已为用户 {user.username} 添加 {duration_days} 天会员',
+            'message': f'已为用户 {user.username} 发放 {points} 积分',
+            'points_added': points,
+            'expires_at': balance.expires_at.isoformat() if balance.expires_at else None,
+            'new_balance': PointsService.get_valid_points(user.id),
+            'user': user.to_dict(),
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return error_response('SERVER_ERROR', str(e), 500)
+
+
+@admin_bp.route('/users/<user_id>/deduct-points', methods=['POST'])
+@login_required
+@admin_required
+def deduct_points(user_id):
+    """
+    POST /api/admin/users/{user_id}/deduct-points - 扣除用户积分
+
+    Body:
+    {
+        "points": 100,
+        "note": "扣除原因"
+    }
+    """
+    try:
+        user = User.query.get(user_id)
+        if not user:
+            return not_found('User')
+
+        data = request.get_json() or {}
+        points = data.get('points')
+        note = data.get('note', '')
+
+        if not points or points <= 0:
+            return bad_request("points 必须大于 0")
+
+        current_admin = get_current_user()
+
+        success, message = PointsService.admin_deduct_points(
+            user_id=user.id,
+            amount=points,
+            admin_id=current_admin.id,
+            note=note
+        )
+
+        if not success:
+            return bad_request(message)
+
+        db.session.commit()
+
+        return success_response({
+            'message': f'已扣除用户 {user.username} 的 {points} 积分',
+            'points_deducted': points,
+            'new_balance': PointsService.get_valid_points(user.id),
             'user': user.to_dict(),
         })
 
@@ -160,7 +265,7 @@ def grant_premium(user_id):
 @admin_required
 def revoke_premium(user_id):
     """
-    POST /api/admin/users/{user_id}/revoke-premium - 撤销用户会员
+    POST /api/admin/users/{user_id}/revoke-premium - 清空用户积分（相当于撤销会员）
 
     Body:
     {
@@ -172,33 +277,28 @@ def revoke_premium(user_id):
         if not user:
             return not_found('User')
 
-        if user.tier != 'premium':
-            return bad_request("用户当前不是高级会员")
+        valid_points = PointsService.get_valid_points(user.id)
+        if valid_points <= 0:
+            return bad_request("用户当前没有积分")
 
         data = request.get_json() or {}
         note = data.get('note', '')
 
         current_admin = get_current_user()
-        now = datetime.utcnow()
 
-        # 更新用户
-        user.tier = 'free'
-        user.premium_expires_at = None
-        user.updated_at = now
-
-        # 记录历史
-        history = PremiumHistory(
+        # 扣除所有积分
+        success, message = PointsService.admin_deduct_points(
             user_id=user.id,
-            action='admin_revoke',
+            amount=valid_points,
             admin_id=current_admin.id,
-            note=note,
+            note=note or '管理员清空积分'
         )
-        db.session.add(history)
 
         db.session.commit()
 
         return success_response({
-            'message': f'已撤销用户 {user.username} 的会员资格',
+            'message': f'已清空用户 {user.username} 的 {valid_points} 积分',
+            'points_deducted': valid_points,
             'user': user.to_dict(),
         })
 
@@ -341,36 +441,39 @@ def list_recharge_codes():
 @admin_required
 def create_recharge_codes():
     """
-    POST /api/admin/recharge-codes - 批量生成充值码
+    POST /api/admin/recharge-codes - 批量生成充值码（积分版）
 
     Body:
     {
         "count": 10,
-        "duration_days": 30,
-        "expires_in_days": 365  // 可选，充值码有效期
+        "points": 500,              // 积分数量
+        "points_expire_days": null, // 积分有效期天数，null表示永不过期
+        "expires_in_days": 365      // 可选，充值码本身的有效期
     }
     """
     try:
         data = request.get_json() or {}
         count = data.get('count', 1)
-        duration_days = data.get('duration_days')
+        points = data.get('points')
+        points_expire_days = data.get('points_expire_days')  # null表示永不过期
         expires_in_days = data.get('expires_in_days')
 
-        if not duration_days or duration_days <= 0:
-            return bad_request("duration_days 必须大于 0")
+        if not points or points <= 0:
+            return bad_request("points 必须大于 0")
 
         if count <= 0 or count > 100:
             return bad_request("count 必须在 1-100 之间")
 
         current_admin = get_current_user()
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         expires_at = now + timedelta(days=expires_in_days) if expires_in_days else None
 
         codes = []
         for _ in range(count):
             code = RechargeCode(
                 code=RechargeCode.generate_code(),
-                duration_days=duration_days,
+                points=points,
+                points_expire_days=points_expire_days,
                 created_by_admin_id=current_admin.id,
                 expires_at=expires_at,
             )
@@ -380,7 +483,7 @@ def create_recharge_codes():
         db.session.commit()
 
         return success_response({
-            'message': f'已生成 {count} 个充值码',
+            'message': f'已生成 {count} 个充值码（每个 {points} 积分）',
             'codes': [c.to_dict() for c in codes],
         })
 
@@ -480,12 +583,19 @@ def update_system_settings():
         "default_premium_days": 30,
         "require_email_verification": true,
 
-        // 裂变设置
-        "referral_register_reward_days": 1,
-        "referral_premium_reward_days": 3,
+        // 积分设置
+        "points_per_page": 15,
+        "register_bonus_points": 300,
+        "register_bonus_expire_days": 3,
+
+        // 裂变积分设置
+        "referral_inviter_register_points": 100,
+        "referral_invitee_register_points": 100,
+        "referral_inviter_upgrade_points": 450,
+        "referral_points_expire_days": 30,
         "referral_domain": "ppt.netopstec.com",
 
-        // 用量限制
+        // 用量限制（旧版，保留兼容）
         "daily_image_generation_limit": 20,
         "enable_usage_limit": true,
 
@@ -514,10 +624,35 @@ def update_system_settings():
         if 'require_email_verification' in data:
             settings.require_email_verification = bool(data['require_email_verification'])
 
-        # 裂变设置
+        # 积分设置
+        if 'points_per_page' in data:
+            settings.points_per_page = int(data['points_per_page'])
+
+        if 'register_bonus_points' in data:
+            settings.register_bonus_points = int(data['register_bonus_points'])
+
+        if 'register_bonus_expire_days' in data:
+            val = data['register_bonus_expire_days']
+            settings.register_bonus_expire_days = int(val) if val is not None else None
+
+        # 裂变积分设置
         if 'referral_enabled' in data:
             settings.referral_enabled = bool(data['referral_enabled'])
 
+        if 'referral_inviter_register_points' in data:
+            settings.referral_inviter_register_points = int(data['referral_inviter_register_points'])
+
+        if 'referral_invitee_register_points' in data:
+            settings.referral_invitee_register_points = int(data['referral_invitee_register_points'])
+
+        if 'referral_inviter_upgrade_points' in data:
+            settings.referral_inviter_upgrade_points = int(data['referral_inviter_upgrade_points'])
+
+        if 'referral_points_expire_days' in data:
+            val = data['referral_points_expire_days']
+            settings.referral_points_expire_days = int(val) if val is not None else None
+
+        # 旧版裂变设置（保留兼容）
         if 'referral_register_reward_days' in data:
             settings.referral_register_reward_days = int(data['referral_register_reward_days'])
 
@@ -530,7 +665,7 @@ def update_system_settings():
         if 'referral_domain' in data:
             settings.referral_domain = data['referral_domain'].strip()
 
-        # 用量限制
+        # 用量限制（旧版，保留兼容）
         if 'daily_image_generation_limit' in data:
             settings.daily_image_generation_limit = int(data['daily_image_generation_limit'])
 

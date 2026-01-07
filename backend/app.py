@@ -24,6 +24,7 @@ from controllers.material_controller import material_bp, material_global_bp
 from controllers.reference_file_controller import reference_file_bp
 from controllers.settings_controller import settings_bp
 from controllers import project_bp, page_bp, template_bp, user_template_bp, export_bp, file_bp, auth_bp, user_settings_bp, premium_bp, admin_bp, referral_bp, usage_bp
+from controllers.points_controller import points_bp
 
 
 def create_app():
@@ -86,6 +87,7 @@ def create_app():
     app.register_blueprint(admin_bp)
     app.register_blueprint(referral_bp)
     app.register_blueprint(usage_bp)
+    app.register_blueprint(points_bp)
 
     @app.errorhandler(BadRequest)
     def handle_bad_request(e: BadRequest):
