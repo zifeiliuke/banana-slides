@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { LogIn, UserPlus, Eye, EyeOff } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
+import { LogIn, UserPlus, Eye, EyeOff, Gift } from 'lucide-react';
 import { Button, Input, useToast } from '@/components/shared';
 import { useAuthStore } from '@/store/useAuthStore';
 import { apiClient } from '@/api/client';
@@ -11,6 +11,7 @@ type AuthMode = 'login' | 'register';
 export const Login: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { login, register, isLoading, error, setError, isAuthenticated } = useAuthStore();
   const { show, ToastContainer } = useToast();
 
@@ -25,6 +26,18 @@ export const Login: React.FC = () => {
   const [sendCooldownSeconds, setSendCooldownSeconds] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // 从 URL 获取邀请码（支持 ref 和 referral_code 参数）
+  const referralCode = useMemo(() => {
+    return searchParams.get('ref') || searchParams.get('referral_code') || '';
+  }, [searchParams]);
+
+  // 如果有邀请码，自动切换到注册模式
+  useEffect(() => {
+    if (referralCode) {
+      setMode('register');
+    }
+  }, [referralCode]);
 
   useEffect(() => {
     let timer: number | undefined;
@@ -167,6 +180,7 @@ export const Login: React.FC = () => {
         password,
         email: email.trim() ? email.trim().toLowerCase() : undefined,
         verification_code: requireEmailVerification ? verificationCode.trim() : undefined,
+        referral_code: referralCode || undefined,
       });
     }
 
@@ -206,6 +220,16 @@ export const Login: React.FC = () => {
           <h2 className="text-xl font-semibold text-center mb-6">
             {mode === 'login' ? '登录账户' : '创建账户'}
           </h2>
+
+          {/* 邀请码提示 */}
+          {mode === 'register' && referralCode && (
+            <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 mb-4">
+              <Gift size={18} className="text-green-500 shrink-0" />
+              <span>
+                使用邀请码 <span className="font-mono font-semibold">{referralCode}</span> 注册，将获得额外积分奖励！
+              </span>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <Input
