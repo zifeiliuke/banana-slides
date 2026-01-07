@@ -16,6 +16,7 @@ from middleware import (
     AuthenticationError,
 )
 from services.referral_service import ReferralService
+from services.points_service import PointsService
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -152,21 +153,14 @@ def register():
     if email and User.query.filter_by(email=email).first():
         return jsonify({'error': 'Email already exists'}), 409
 
-    # 确定用户初始等级
-    initial_tier = settings.default_user_tier
-    initial_premium_expires_at = None
-
-    if initial_tier == 'premium' and settings.default_premium_days > 0:
-        initial_premium_expires_at = datetime.now(timezone.utc) + timedelta(days=settings.default_premium_days)
-
-    # Create user
+    # Create user (积分体系：tier由积分动态决定)
     user = User(
         username=username,
         email=email,
         email_verified=settings.require_email_verification,  # 如果要求验证，则验证码验证通过即为已验证
         role='user',
-        tier=initial_tier,
-        premium_expires_at=initial_premium_expires_at,
+        tier='free',  # 初始为free，由积分动态决定实际tier
+        premium_expires_at=None,
     )
     user.set_password(password)
     user.ensure_referral_code()  # 生成邀请码
@@ -174,7 +168,10 @@ def register():
     db.session.add(user)
     db.session.flush()  # 获取用户ID
 
-    # 处理邀请关系
+    # 发放注册赠送积分
+    PointsService.grant_register_bonus(user.id)
+
+    # 处理邀请关系（会发放邀请奖励积分）
     if referral_code:
         ReferralService.process_registration_referral(user, referral_code)
 

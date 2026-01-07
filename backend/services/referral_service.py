@@ -1,16 +1,17 @@
 """
-Referral Service - handles referral rewards and tracking
+Referral Service - handles referral rewards and tracking (积分版)
 """
 import logging
 from datetime import datetime, timezone
 from typing import Optional, Tuple
-from models import db, User, Referral, PremiumHistory, SystemSettings
+from models import db, User, Referral, SystemSettings
+from services.points_service import PointsService
 
 logger = logging.getLogger(__name__)
 
 
 class ReferralService:
-    """邀请裂变服务"""
+    """邀请裂变服务（积分版）"""
 
     @staticmethod
     def get_inviter_by_code(referral_code: str) -> Optional[User]:
@@ -30,7 +31,7 @@ class ReferralService:
     @staticmethod
     def process_registration_referral(invitee: User, referral_code: str) -> Tuple[bool, str]:
         """
-        处理注册时的邀请关系
+        处理注册时的邀请关系（积分奖励）
 
         Args:
             invitee: 新注册的用户
@@ -67,27 +68,22 @@ class ReferralService:
         )
         db.session.add(referral)
 
-        # 发放邀请者注册奖励
-        inviter_reward_days = settings.referral_register_reward_days
+        # 发放邀请者注册奖励（积分）
+        inviter_reward_points = settings.referral_inviter_register_points
 
-        if inviter_reward_days > 0:
-            inviter.add_premium_days(inviter_reward_days)
+        if inviter_reward_points > 0:
+            PointsService.grant_referral_reward(
+                user_id=inviter.id,
+                reward_type='inviter_register',
+                invitee_username=invitee.username
+            )
 
             # 更新邀请记录
             referral.register_reward_granted = True
-            referral.register_reward_days = inviter_reward_days
+            referral.register_reward_days = inviter_reward_points  # 复用字段存积分
             referral.register_reward_at = datetime.now(timezone.utc)
 
-            # 记录会员历史
-            history = PremiumHistory(
-                user_id=inviter.id,
-                action='referral_register',
-                duration_days=inviter_reward_days,
-                note=f'邀请用户 {invitee.username} 注册奖励'
-            )
-            db.session.add(history)
-
-            logger.info(f"Granted {inviter_reward_days} days to inviter {inviter.username} for inviting {invitee.username}")
+            logger.info(f"Granted {inviter_reward_points} points to inviter {inviter.username} for inviting {invitee.username}")
 
             # 尝试发送邮件通知邀请者
             try:
@@ -95,37 +91,32 @@ class ReferralService:
                     from services.email_service import get_email_service
                     email_service = get_email_service()
                     email_service.send_referral_reward_notification(
-                        inviter.email, invitee.username, inviter_reward_days, 'register'
+                        inviter.email, invitee.username, inviter_reward_points, 'register'
                     )
             except Exception as e:
                 logger.warning(f"Failed to send referral reward email to inviter: {e}")
 
-        # 发放被邀请者注册奖励
-        invitee_reward_days = settings.referral_invitee_reward_days
+        # 发放被邀请者注册奖励（积分）
+        invitee_reward_points = settings.referral_invitee_register_points
 
-        if invitee_reward_days > 0:
-            invitee.add_premium_days(invitee_reward_days)
-
-            # 记录会员历史
-            invitee_history = PremiumHistory(
+        if invitee_reward_points > 0:
+            PointsService.grant_referral_reward(
                 user_id=invitee.id,
-                action='referral_invitee_register',
-                duration_days=invitee_reward_days,
-                note=f'通过 {inviter.username} 的邀请注册奖励'
+                reward_type='invitee_register',
+                invitee_username=inviter.username
             )
-            db.session.add(invitee_history)
 
-            logger.info(f"Granted {invitee_reward_days} days to invitee {invitee.username} for registering via referral")
+            logger.info(f"Granted {invitee_reward_points} points to invitee {invitee.username} for registering via referral")
 
         return True, ''
 
     @staticmethod
     def process_premium_upgrade_referral(user: User):
         """
-        处理用户升级会员时的邀请奖励
+        处理用户首次充值时的邀请奖励（积分版）
 
         Args:
-            user: 升级为会员的用户
+            user: 充值的用户
         """
         if not user.referred_by_user_id:
             return
@@ -135,7 +126,7 @@ class ReferralService:
         if not settings.referral_enabled:
             return
 
-        # 查找邀请记录
+        # 查找邀请记录（只奖励一次）
         referral = Referral.query.filter_by(
             inviter_user_id=user.referred_by_user_id,
             invitee_user_id=user.id,
@@ -150,29 +141,25 @@ class ReferralService:
         if not inviter:
             return
 
-        # 发放升级奖励
-        reward_days = settings.referral_premium_reward_days
+        # 发放升级奖励（积分）
+        reward_points = settings.referral_inviter_upgrade_points
 
-        if reward_days > 0:
-            inviter.add_premium_days(reward_days)
+        if reward_points > 0:
+            PointsService.grant_referral_reward(
+                user_id=inviter.id,
+                reward_type='inviter_upgrade',
+                invitee_username=user.username
+            )
 
             # 更新邀请记录
             referral.status = 'premium'
             referral.premium_reward_granted = True
-            referral.premium_reward_days = reward_days
+            referral.premium_reward_days = reward_points  # 复用字段存积分
             referral.premium_reward_at = datetime.now(timezone.utc)
 
-            # 记录会员历史
-            history = PremiumHistory(
-                user_id=inviter.id,
-                action='referral_premium',
-                duration_days=reward_days,
-                note=f'邀请用户 {user.username} 升级会员奖励'
-            )
-            db.session.add(history)
             db.session.commit()
 
-            logger.info(f"Granted {reward_days} days to {inviter.username} for {user.username} upgrading to premium")
+            logger.info(f"Granted {reward_points} points to {inviter.username} for {user.username} upgrading to premium")
 
             # 尝试发送邮件通知
             try:
@@ -180,7 +167,7 @@ class ReferralService:
                     from services.email_service import get_email_service
                     email_service = get_email_service()
                     email_service.send_referral_reward_notification(
-                        inviter.email, user.username, reward_days, 'premium'
+                        inviter.email, user.username, reward_points, 'premium'
                     )
             except Exception as e:
                 logger.warning(f"Failed to send referral reward email: {e}")
@@ -188,7 +175,7 @@ class ReferralService:
     @staticmethod
     def get_user_referral_stats(user: User) -> dict:
         """
-        获取用户的邀请统计
+        获取用户的邀请统计（积分版）
 
         Args:
             user: 用户对象
@@ -212,9 +199,9 @@ class ReferralService:
                 'total_invites': 0,
                 'registered_invites': 0,
                 'premium_invites': 0,
-                'total_reward_days': 0,
-                'register_reward_days': 0,
-                'premium_reward_days': 0,
+                'total_reward_points': 0,
+                'register_reward_points': 0,
+                'premium_reward_points': 0,
             }
 
         # 统计邀请数据
@@ -228,14 +215,14 @@ class ReferralService:
             status='premium'
         ).count()
 
-        # 计算总奖励天数
-        total_reward_days = 0
+        # 计算总奖励积分
+        total_reward_points = 0
         referrals = Referral.query.filter_by(inviter_user_id=user.id).all()
         for ref in referrals:
-            if ref.register_reward_days:
-                total_reward_days += ref.register_reward_days
-            if ref.premium_reward_days:
-                total_reward_days += ref.premium_reward_days
+            if ref.register_reward_days:  # 复用字段存积分
+                total_reward_points += ref.register_reward_days
+            if ref.premium_reward_days:  # 复用字段存积分
+                total_reward_points += ref.premium_reward_days
 
         return {
             'referral_enabled': True,
@@ -244,9 +231,9 @@ class ReferralService:
             'total_invites': total_invites,
             'registered_invites': registered_invites,
             'premium_invites': premium_invites,
-            'total_reward_days': total_reward_days,
-            'register_reward_days': settings.referral_register_reward_days,
-            'premium_reward_days': settings.referral_premium_reward_days,
+            'total_reward_points': total_reward_points,
+            'register_reward_points': settings.referral_inviter_register_points,
+            'premium_reward_points': settings.referral_inviter_upgrade_points,
         }
 
     @staticmethod
@@ -274,9 +261,9 @@ class ReferralService:
                 'invitee_email': ref.invitee_email,
                 'status': ref.status,
                 'register_reward_granted': ref.register_reward_granted,
-                'register_reward_days': ref.register_reward_days,
+                'register_reward_points': ref.register_reward_days,  # 复用字段
                 'premium_reward_granted': ref.premium_reward_granted,
-                'premium_reward_days': ref.premium_reward_days,
+                'premium_reward_points': ref.premium_reward_days,  # 复用字段
                 'created_at': ref.created_at.isoformat() if ref.created_at else None,
             })
 

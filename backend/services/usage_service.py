@@ -1,9 +1,10 @@
 """
-Usage Service - handles API usage tracking and limits
+Usage Service - handles API usage tracking and points consumption
 """
 import logging
 from typing import Tuple
 from models import User, DailyUsage, SystemSettings, UserSettings
+from services.points_service import PointsService
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class UsageService:
         if user.is_admin():
             return True
 
-        # 高级会员使用系统API
+        # 检查用户是否有有效积分（会员）
         if user.is_premium_active():
             return True
 
@@ -41,7 +42,7 @@ class UsageService:
     @staticmethod
     def check_image_generation_quota(user: User, pages_count: int = 1) -> Tuple[bool, int, str]:
         """
-        检查用户是否可以生成指定数量的图片
+        检查用户是否可以生成指定数量的图片（基于积分）
 
         Args:
             user: 用户对象
@@ -50,13 +51,6 @@ class UsageService:
         Returns:
             (can_generate: bool, remaining: int, error_message: str)
         """
-        # 获取系统设置
-        settings = SystemSettings.get_settings()
-
-        # 如果未启用限制，直接通过
-        if not settings.enable_usage_limit:
-            return True, -1, ''  # -1 表示无限制
-
         # 管理员不受限制
         if user.is_admin():
             return True, -1, ''
@@ -66,48 +60,95 @@ class UsageService:
             # 使用自己的API，不受限制
             return True, -1, ''
 
-        # 使用系统API，检查配额
-        daily_limit = settings.daily_image_generation_limit
-        can_generate, remaining, message = DailyUsage.can_generate(
-            user.id, daily_limit, pages_count
+        # 使用系统API，检查积分
+        settings = SystemSettings.get_settings()
+        required_points = settings.points_per_page * pages_count
+
+        valid_points = PointsService.get_valid_points(user.id)
+
+        if valid_points <= 0:
+            return False, 0, '积分不足，请充值后继续使用'
+
+        # 计算可生成页数
+        can_generate_pages = valid_points // settings.points_per_page if settings.points_per_page > 0 else 0
+
+        return True, valid_points, ''
+
+    @staticmethod
+    def consume_and_record(user: User, pages_count: int = 1) -> Tuple[bool, str]:
+        """
+        消耗积分并记录使用量
+
+        Args:
+            user: 用户对象
+            pages_count: 生成的页数
+
+        Returns:
+            (success: bool, error_message: str)
+        """
+        # 管理员不消耗积分
+        if user.is_admin():
+            # 仍然记录使用量（用于统计）
+            DailyUsage.increment_image_count(user.id, count=pages_count, used_system_api=True)
+            return True, ''
+
+        # 检查是否使用系统API
+        using_system_api = UsageService.is_using_system_api(user)
+
+        if not using_system_api:
+            # 使用自己的API，只记录不消耗积分
+            DailyUsage.increment_image_count(user.id, count=pages_count, used_system_api=False)
+            return True, ''
+
+        # 使用系统API，消耗积分
+        settings = SystemSettings.get_settings()
+        amount = settings.points_per_page * pages_count
+
+        # 检查是否可以消费
+        can_consume, remaining, message = PointsService.can_consume(user.id, amount)
+
+        if not can_consume:
+            return False, message
+
+        # 消耗积分
+        success, message = PointsService.consume_points(
+            user.id,
+            amount,
+            f'生成 {pages_count} 页PPT'
         )
 
-        return can_generate, remaining, message
+        if success:
+            # 记录使用量
+            DailyUsage.increment_image_count(user.id, count=pages_count, used_system_api=True)
+            logger.info(f"Consumed {amount} points for {pages_count} pages, user={user.username}")
+
+        return success, message
 
     @staticmethod
     def record_image_generation(user: User, pages_count: int = 1):
         """
-        记录图片生成使用量
+        [兼容旧代码] 记录图片生成使用量
+        新代码请使用 consume_and_record
 
         Args:
             user: 用户对象
             pages_count: 生成的页数
         """
-        # 检查是否使用系统API
         using_system_api = UsageService.is_using_system_api(user)
-
-        # 只有使用系统API才记录
-        if using_system_api:
-            DailyUsage.increment_image_count(
-                user.id,
-                count=pages_count,
-                used_system_api=True
-            )
-            logger.info(f"Recorded {pages_count} image generations for user {user.username}")
+        DailyUsage.increment_image_count(user.id, count=pages_count, used_system_api=using_system_api)
+        logger.info(f"Recorded {pages_count} image generations for user {user.username}")
 
     @staticmethod
     def record_text_generation(user: User, tokens: int = 0):
         """
-        记录文本生成使用量
+        记录文本生成使用量（文本生成不消耗积分）
 
         Args:
             user: 用户对象
             tokens: 消耗的tokens数量
         """
-        # 检查是否使用系统API
         using_system_api = UsageService.is_using_system_api(user)
 
-        # 只有使用系统API才记录
         if using_system_api:
             DailyUsage.increment_text_count(
                 user.id,
@@ -120,7 +161,7 @@ class UsageService:
     @staticmethod
     def get_user_usage_status(user: User) -> dict:
         """
-        获取用户的使用状态
+        获取用户的使用状态（基于积分）
 
         Args:
             user: 用户对象
@@ -128,34 +169,49 @@ class UsageService:
         Returns:
             使用状态字典
         """
-        settings = SystemSettings.get_settings()
         using_system_api = UsageService.is_using_system_api(user)
+        settings = SystemSettings.get_settings()
 
-        if not settings.enable_usage_limit or user.is_admin() or not using_system_api:
+        if user.is_admin():
             return {
                 'limited': False,
-                'daily_limit': -1,
-                'used_today': 0,
-                'remaining': -1,
-                'using_system_api': using_system_api,
+                'valid_points': -1,  # 无限
+                'points_per_page': settings.points_per_page,
+                'can_generate_pages': -1,
+                'using_system_api': True,
+                'is_admin': True,
             }
 
-        usage = DailyUsage.get_today_usage(user.id)
-        daily_limit = settings.daily_image_generation_limit
-        remaining = max(0, daily_limit - usage.image_generation_count)
+        if not using_system_api:
+            return {
+                'limited': False,
+                'valid_points': -1,
+                'points_per_page': settings.points_per_page,
+                'can_generate_pages': -1,
+                'using_system_api': False,
+                'is_admin': False,
+            }
+
+        # 使用系统API，返回积分信息
+        valid_points = PointsService.get_valid_points(user.id)
+        can_generate_pages = valid_points // settings.points_per_page if settings.points_per_page > 0 else 0
+        expiring = PointsService.get_expiring_points(user.id)
 
         return {
-            'limited': True,
-            'daily_limit': daily_limit,
-            'used_today': usage.image_generation_count,
-            'remaining': remaining,
-            'using_system_api': using_system_api,
+            'limited': valid_points <= 0,
+            'valid_points': valid_points,
+            'points_per_page': settings.points_per_page,
+            'can_generate_pages': can_generate_pages,
+            'expiring_soon': expiring,
+            'using_system_api': True,
+            'is_admin': False,
         }
 
 
 def check_and_record_usage(user: User, pages_count: int = 1) -> Tuple[bool, str]:
     """
-    检查并记录使用量（便捷函数）
+    检查使用配额（便捷函数）
+    注意：此函数只检查不消耗，实际消耗在生成成功后调用 consume_and_record
 
     Args:
         user: 用户对象
@@ -169,5 +225,4 @@ def check_and_record_usage(user: User, pages_count: int = 1) -> Tuple[bool, str]
     if not can_generate:
         return False, message
 
-    # 注意：这里不记录，只检查。记录在实际生成成功后进行。
     return True, ''

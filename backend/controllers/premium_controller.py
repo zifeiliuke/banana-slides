@@ -1,12 +1,13 @@
 """
-Premium Controller - handles premium membership and recharge
+Premium Controller - handles premium membership and points (积分版)
 """
 from flask import Blueprint, request
-from models import db, User, RechargeCode, PremiumHistory
+from models import db, User, RechargeCode, PointsBalance, PointsTransaction
 from utils import success_response, error_response, not_found, bad_request
 from middleware import login_required, get_current_user
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from services.referral_service import ReferralService
+from services.points_service import PointsService
 
 premium_bp = Blueprint('premium', __name__, url_prefix='/api/premium')
 
@@ -15,17 +16,13 @@ premium_bp = Blueprint('premium', __name__, url_prefix='/api/premium')
 @login_required
 def get_premium_status():
     """
-    GET /api/premium/status - 获取当前用户的会员状态
+    GET /api/premium/status - 获取当前用户的会员状态（积分版）
     """
     try:
         current_user = get_current_user()
+        status = PointsService.get_user_points_status(current_user)
 
-        return success_response({
-            'tier': current_user.get_effective_tier(),  # 实际有效的会员等级
-            'stored_tier': current_user.tier,  # 数据库存储的原始等级
-            'is_premium_active': current_user.is_premium_active(),
-            'premium_expires_at': current_user.premium_expires_at.isoformat() if current_user.premium_expires_at else None,
-        })
+        return success_response(status)
 
     except Exception as e:
         return error_response('SERVER_ERROR', str(e), 500)
@@ -35,18 +32,41 @@ def get_premium_status():
 @login_required
 def get_premium_history():
     """
-    GET /api/premium/history - 获取用户的会员历史记录
+    GET /api/premium/history - 获取用户的积分流水记录
     """
     try:
         current_user = get_current_user()
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        type_filter = request.args.get('type', None)
 
-        history = PremiumHistory.query.filter_by(user_id=current_user.id) \
-            .order_by(PremiumHistory.created_at.desc()) \
-            .limit(50) \
-            .all()
+        result = PointsService.get_transactions(
+            current_user.id,
+            type_filter=type_filter,
+            page=page,
+            per_page=per_page
+        )
+
+        return success_response(result)
+
+    except Exception as e:
+        return error_response('SERVER_ERROR', str(e), 500)
+
+
+@premium_bp.route('/balances', methods=['GET'])
+@login_required
+def get_points_balances():
+    """
+    GET /api/premium/balances - 获取用户的积分批次明细
+    """
+    try:
+        current_user = get_current_user()
+        include_expired = request.args.get('include_expired', 'false').lower() == 'true'
+
+        balances = PointsService.get_points_balances(current_user.id, include_expired)
 
         return success_response({
-            'history': [h.to_dict() for h in history]
+            'balances': [b.to_dict() for b in balances]
         })
 
     except Exception as e:
@@ -57,7 +77,7 @@ def get_premium_history():
 @login_required
 def redeem_code():
     """
-    POST /api/premium/redeem - 兑换充值码
+    POST /api/premium/redeem - 兑换充值码（积分版）
 
     Body:
     {
@@ -81,40 +101,37 @@ def redeem_code():
         if recharge_code.is_used:
             return bad_request("该充值码已被使用")
 
-        if recharge_code.expires_at and recharge_code.expires_at < datetime.utcnow():
-            return bad_request("该充值码已过期")
+        if recharge_code.expires_at:
+            now = datetime.now(timezone.utc)
+            expires_at = recharge_code.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at < now:
+                return bad_request("该充值码已过期")
 
-        # 计算新的到期时间
-        now = datetime.utcnow()
-        if current_user.tier == 'premium' and current_user.premium_expires_at and current_user.premium_expires_at > now:
-            # 已有会员，在现有基础上延长
-            new_expires_at = current_user.premium_expires_at + timedelta(days=recharge_code.duration_days)
-        else:
-            # 新开通会员
-            new_expires_at = now + timedelta(days=recharge_code.duration_days)
+        # 检查积分数量
+        if recharge_code.points <= 0:
+            return bad_request("该充值码无效（积分为0）")
 
         # 更新充值码状态
+        now = datetime.now(timezone.utc)
         recharge_code.is_used = True
         recharge_code.used_by_user_id = current_user.id
         recharge_code.used_at = now
 
-        # 更新用户会员状态
-        current_user.tier = 'premium'
-        current_user.premium_expires_at = new_expires_at
-        current_user.updated_at = now
-
-        # 记录历史
-        history = PremiumHistory(
+        # 发放积分
+        balance = PointsService.grant_points(
             user_id=current_user.id,
-            action='recharge',
-            duration_days=recharge_code.duration_days,
-            recharge_code_id=recharge_code.id,
+            amount=recharge_code.points,
+            source=PointsBalance.SOURCE_RECHARGE,
+            source_id=recharge_code.id,
+            source_note=f'充值码兑换: {code_str}',
+            expire_days=recharge_code.points_expire_days
         )
-        db.session.add(history)
 
         db.session.commit()
 
-        # 处理邀请升级奖励（给邀请者发放奖励）
+        # 处理邀请升级奖励（首次充值给邀请者发放奖励）
         try:
             ReferralService.process_premium_upgrade_referral(current_user)
         except Exception as e:
@@ -122,15 +139,61 @@ def redeem_code():
             import logging
             logging.warning(f"Failed to process premium upgrade referral: {e}")
 
+        # 获取最新积分状态
+        new_valid_points = PointsService.get_valid_points(current_user.id)
+
         return success_response({
-            'message': f'充值成功！已增加 {recharge_code.duration_days} 天会员时长',
-            'tier': current_user.get_effective_tier(),  # 实际有效的会员等级
-            'stored_tier': current_user.tier,  # 数据库存储的原始等级
-            'is_premium_active': True,
-            'premium_expires_at': new_expires_at.isoformat(),
-            'duration_days': recharge_code.duration_days,
+            'message': f'充值成功！已增加 {recharge_code.points} 积分',
+            'points_added': recharge_code.points,
+            'expires_at': balance.expires_at.isoformat() if balance.expires_at else None,
+            'new_balance': new_valid_points,
+            'tier': current_user.get_effective_tier(),
+            'is_premium_active': current_user.is_premium_active(),
         })
 
     except Exception as e:
         db.session.rollback()
+        return error_response('SERVER_ERROR', str(e), 500)
+
+
+# ========== 积分相关接口（新增） ==========
+
+@premium_bp.route('/points/balance', methods=['GET'])
+@login_required
+def get_points_balance():
+    """
+    GET /api/premium/points/balance - 获取用户积分余额
+    """
+    try:
+        current_user = get_current_user()
+        status = PointsService.get_user_points_status(current_user)
+
+        return success_response(status)
+
+    except Exception as e:
+        return error_response('SERVER_ERROR', str(e), 500)
+
+
+@premium_bp.route('/points/transactions', methods=['GET'])
+@login_required
+def get_points_transactions():
+    """
+    GET /api/premium/points/transactions - 获取积分流水
+    """
+    try:
+        current_user = get_current_user()
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        type_filter = request.args.get('type', None)
+
+        result = PointsService.get_transactions(
+            current_user.id,
+            type_filter=type_filter,
+            page=page,
+            per_page=per_page
+        )
+
+        return success_response(result)
+
+    except Exception as e:
         return error_response('SERVER_ERROR', str(e), 500)
