@@ -39,7 +39,8 @@ export const Admin: React.FC = () => {
   // Create codes modal
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createCount, setCreateCount] = useState(10);
-  const [createDays, setCreateDays] = useState(30);
+  const [createPoints, setCreatePoints] = useState(500);
+  const [createExpireDays, setCreateExpireDays] = useState<number | null>(30);
   const [isCreating, setIsCreating] = useState(false);
 
   // Check if user is admin
@@ -118,18 +119,24 @@ export const Admin: React.FC = () => {
     }
   };
 
-  const handleGrantPremium = async (targetUser: User) => {
-    const days = prompt('请输入要添加的会员天数：', '30');
-    if (!days) return;
+  const handleGrantPoints = async (targetUser: User) => {
+    const points = prompt('请输入要发放的积分数量：', '500');
+    if (!points) return;
 
-    const daysNum = parseInt(days, 10);
-    if (isNaN(daysNum) || daysNum <= 0) {
-      show({ message: '请输入有效��天数', type: 'error' });
+    const pointsNum = parseInt(points, 10);
+    if (isNaN(pointsNum) || pointsNum <= 0) {
+      show({ message: '请输入有效的积分数量', type: 'error' });
       return;
     }
 
+    const expireDays = prompt('请输入积分有效期（天数，留空表示永久）：', '30');
+    const expireDaysNum = expireDays ? parseInt(expireDays, 10) : null;
+
     try {
-      const response = await api.adminGrantPremium(targetUser.id, { duration_days: daysNum });
+      const response = await api.adminGrantPoints(targetUser.id, {
+        points: pointsNum,
+        expire_days: expireDaysNum
+      });
       if (response.success) {
         show({ message: response.data?.message || '操作成功', type: 'success' });
         loadUsers();
@@ -140,9 +147,36 @@ export const Admin: React.FC = () => {
     }
   };
 
+  const handleDeductPoints = async (targetUser: User) => {
+    const points = prompt('请输入要扣除的积分数量：', '100');
+    if (!points) return;
+
+    const pointsNum = parseInt(points, 10);
+    if (isNaN(pointsNum) || pointsNum <= 0) {
+      show({ message: '请输入有效的积分数量', type: 'error' });
+      return;
+    }
+
+    const note = prompt('请输入扣除原因（可选）：', '');
+
+    try {
+      const response = await api.adminDeductPoints(targetUser.id, {
+        points: pointsNum,
+        note: note || undefined
+      });
+      if (response.success) {
+        show({ message: response.data?.message || '操作成功', type: 'success' });
+        loadUsers();
+        loadStats();
+      }
+    } catch (err: any) {
+      show({ message: err?.response?.data?.error?.message || '操作失败', type: 'error' });
+    }
+  };
+
   const handleRevokePremium = async (targetUser: User) => {
     confirm(
-      `确定要撤销用户 ${targetUser.username} 的会员资格吗？`,
+      `确定要清空用户 ${targetUser.username} 的所有积分吗？此操作不可恢复！`,
       async () => {
         try {
           const response = await api.adminRevokePremium(targetUser.id);
@@ -156,8 +190,8 @@ export const Admin: React.FC = () => {
         }
       },
       {
-        title: '撤销会员',
-        confirmText: '确定撤销',
+        title: '清空积分',
+        confirmText: '确定清空',
         cancelText: '取消',
         variant: 'danger',
       }
@@ -213,8 +247,8 @@ export const Admin: React.FC = () => {
   };
 
   const handleCreateCodes = async () => {
-    if (createCount <= 0 || createDays <= 0) {
-      show({ message: '请输入有效的数量和天数', type: 'error' });
+    if (createCount <= 0 || createPoints <= 0) {
+      show({ message: '请输入有效的数量和积分', type: 'error' });
       return;
     }
 
@@ -222,7 +256,8 @@ export const Admin: React.FC = () => {
     try {
       const response = await api.adminCreateRechargeCodes({
         count: createCount,
-        duration_days: createDays,
+        points: createPoints,
+        points_expire_days: createExpireDays,
       });
       if (response.success) {
         show({ message: response.data?.message || '创建成功', type: 'success' });
@@ -534,9 +569,9 @@ export const Admin: React.FC = () => {
                     <tr className="border-b border-gray-200">
                       <th className="text-left py-3 px-2 text-sm font-medium text-gray-500">用户名</th>
                       <th className="text-left py-3 px-2 text-sm font-medium text-gray-500">邮箱</th>
+                      <th className="text-left py-3 px-2 text-sm font-medium text-gray-500">积分</th>
                       <th className="text-left py-3 px-2 text-sm font-medium text-gray-500">等级</th>
                       <th className="text-left py-3 px-2 text-sm font-medium text-gray-500">状态</th>
-                      <th className="text-left py-3 px-2 text-sm font-medium text-gray-500">会员到期</th>
                       <th className="text-left py-3 px-2 text-sm font-medium text-gray-500">操作</th>
                     </tr>
                   </thead>
@@ -553,7 +588,14 @@ export const Admin: React.FC = () => {
                         </td>
                         <td className="py-3 px-2 text-gray-500">{u.email || '-'}</td>
                         <td className="py-3 px-2">
-                          {u.tier === 'premium' ? (
+                          <span className="font-bold text-banana-600">{u.valid_points ?? 0}</span>
+                        </td>
+                        <td className="py-3 px-2">
+                          {u.role === 'admin' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-red-100 text-red-600 rounded">
+                              管理员
+                            </span>
+                          ) : u.tier === 'premium' ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-yellow-100 text-yellow-700 rounded">
                               <Crown size={12} /> 高级
                             </span>
@@ -572,29 +614,37 @@ export const Admin: React.FC = () => {
                             </span>
                           )}
                         </td>
-                        <td className="py-3 px-2 text-sm text-gray-500">
-                          {u.premium_expires_at ? formatDate(u.premium_expires_at) : '-'}
-                        </td>
                         <td className="py-3 px-2">
                           <div className="flex items-center gap-1">
-                            {u.tier === 'premium' ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleRevokePremium(u)}
-                                className="text-red-600 hover:bg-red-50"
-                              >
-                                撤销会员
-                              </Button>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleGrantPremium(u)}
-                                className="text-yellow-600 hover:bg-yellow-50"
-                              >
-                                授予会员
-                              </Button>
+                            {u.role !== 'admin' && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleGrantPoints(u)}
+                                  className="text-green-600 hover:bg-green-50"
+                                >
+                                  发放积分
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleDeductPoints(u)}
+                                  className="text-orange-600 hover:bg-orange-50"
+                                >
+                                  扣除积分
+                                </Button>
+                                {(u.valid_points ?? 0) > 0 && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleRevokePremium(u)}
+                                    className="text-red-600 hover:bg-red-50"
+                                  >
+                                    清空积分
+                                  </Button>
+                                )}
+                              </>
                             )}
                             {u.role !== 'admin' && (
                               <>
@@ -696,10 +746,10 @@ export const Admin: React.FC = () => {
                   <thead>
                     <tr className="border-b border-gray-200">
                       <th className="text-left py-3 px-2 text-sm font-medium text-gray-500">充值码</th>
-                      <th className="text-left py-3 px-2 text-sm font-medium text-gray-500">天数</th>
+                      <th className="text-left py-3 px-2 text-sm font-medium text-gray-500">积分</th>
+                      <th className="text-left py-3 px-2 text-sm font-medium text-gray-500">有效期</th>
                       <th className="text-left py-3 px-2 text-sm font-medium text-gray-500">状态</th>
                       <th className="text-left py-3 px-2 text-sm font-medium text-gray-500">创建时间</th>
-                      <th className="text-left py-3 px-2 text-sm font-medium text-gray-500">使用时间</th>
                       <th className="text-left py-3 px-2 text-sm font-medium text-gray-500">操作</th>
                     </tr>
                   </thead>
@@ -717,7 +767,10 @@ export const Admin: React.FC = () => {
                             </button>
                           </div>
                         </td>
-                        <td className="py-3 px-2">{code.duration_days} 天</td>
+                        <td className="py-3 px-2 font-medium text-banana-600">{code.points ?? code.duration_days ?? '-'}</td>
+                        <td className="py-3 px-2 text-sm text-gray-500">
+                          {code.points_expire_days === null || code.points_expire_days === undefined ? '永久' : `${code.points_expire_days}天`}
+                        </td>
                         <td className="py-3 px-2">
                           {code.is_used ? (
                             <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">已使用</span>
@@ -726,7 +779,6 @@ export const Admin: React.FC = () => {
                           )}
                         </td>
                         <td className="py-3 px-2 text-sm text-gray-500">{formatDate(code.created_at)}</td>
-                        <td className="py-3 px-2 text-sm text-gray-500">{formatDate(code.used_at)}</td>
                         <td className="py-3 px-2">
                           {!code.is_used && (
                             <Button
@@ -791,12 +843,34 @@ export const Admin: React.FC = () => {
                 max={100}
               />
               <Input
-                label="会员天数"
+                label="积分数量"
                 type="number"
-                value={createDays}
-                onChange={(e) => setCreateDays(parseInt(e.target.value) || 0)}
+                value={createPoints}
+                onChange={(e) => setCreatePoints(parseInt(e.target.value) || 0)}
                 min={1}
+                placeholder="每个充值码的积分数量"
               />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">积分有效期</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-banana-500"
+                    value={createExpireDays ?? ''}
+                    onChange={(e) => setCreateExpireDays(e.target.value ? parseInt(e.target.value) : null)}
+                    min={1}
+                    placeholder="天数"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCreateExpireDays(null)}
+                    className={`px-3 py-2 rounded-lg text-sm ${createExpireDays === null ? 'bg-banana-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  >
+                    永久
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">留空或点击"永久"表示积分永不过期</p>
+              </div>
             </div>
             <div className="flex justify-end gap-2 mt-6">
               <Button variant="ghost" onClick={() => setShowCreateModal(false)}>

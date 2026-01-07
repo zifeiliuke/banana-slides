@@ -890,7 +890,10 @@ export interface PremiumStatus {
   tier: 'free' | 'premium';  // 实际有效的会员等级
   stored_tier?: 'free' | 'premium';  // 数据库存储的原始等级
   is_premium_active: boolean;
-  premium_expires_at?: string;
+  premium_expires_at?: string;  // 兼容旧版
+  valid_points?: number;  // 有效积分
+  points_per_page?: number;  // 每页消耗积分
+  can_generate_pages?: number;  // 可生成页数
 }
 
 export interface PremiumHistory {
@@ -921,14 +924,16 @@ export const getPremiumHistory = async (): Promise<ApiResponse<{ history: Premiu
 };
 
 /**
- * 兑换充值码
+ * 兑换充值码（积分版）
  */
 export const redeemCode = async (code: string): Promise<ApiResponse<{
   message: string;
   tier: string;
   is_premium_active: boolean;
-  premium_expires_at: string;
-  duration_days: number;
+  premium_expires_at?: string;
+  points_added: number;
+  expires_at?: string;
+  new_balance: number;
 }>> => {
   const response = await apiClient.post('/api/premium/redeem', { code });
   return response.data;
@@ -953,8 +958,11 @@ export interface AdminStats {
 export interface RechargeCode {
   id: string;
   code: string;
-  duration_days: number;
+  duration_days?: number;  // 旧版字段，保留兼容
+  points?: number;  // 积分数量
+  points_expire_days?: number | null;  // 积分有效期天数
   is_used: boolean;
+  is_valid: boolean;
   used_by_user_id?: string;
   used_at?: string;
   created_by_admin_id: string;
@@ -999,10 +1007,35 @@ export const adminGetUser = async (userId: string): Promise<ApiResponse<import('
 };
 
 /**
- * 授予用户会员（管理员）
+ * 授予用户积分（管理员）
+ */
+export const adminGrantPoints = async (userId: string, data: {
+  points: number;
+  expire_days?: number | null;
+  note?: string;
+}): Promise<ApiResponse<{ message: string; points_added: number; expires_at?: string; new_balance: number; user: import('@/types').User }>> => {
+  const response = await apiClient.post(`/api/admin/users/${userId}/grant-points`, data);
+  return response.data;
+};
+
+/**
+ * 扣除用户积分（管理员）
+ */
+export const adminDeductPoints = async (userId: string, data: {
+  points: number;
+  note?: string;
+}): Promise<ApiResponse<{ message: string; points_deducted: number; new_balance: number; user: import('@/types').User }>> => {
+  const response = await apiClient.post(`/api/admin/users/${userId}/deduct-points`, data);
+  return response.data;
+};
+
+/**
+ * 授予用户会员（旧版兼容）
  */
 export const adminGrantPremium = async (userId: string, data: {
-  duration_days: number;
+  points?: number;
+  duration_days?: number;
+  expire_days?: number | null;
   note?: string;
 }): Promise<ApiResponse<{ message: string; user: import('@/types').User }>> => {
   const response = await apiClient.post(`/api/admin/users/${userId}/grant-premium`, data);
@@ -1052,11 +1085,12 @@ export const adminListRechargeCodes = async (params?: {
 };
 
 /**
- * 创建充值码（管理员）
+ * 创建充值码（管理员）- 积分版
  */
 export const adminCreateRechargeCodes = async (data: {
   count: number;
-  duration_days: number;
+  points: number;
+  points_expire_days?: number | null;
   expires_in_days?: number;
 }): Promise<ApiResponse<{ message: string; codes: RechargeCode[] }>> => {
   const response = await apiClient.post('/api/admin/recharge-codes', data);
@@ -1091,15 +1125,24 @@ export interface SystemSettingsData {
   default_user_tier: 'free' | 'premium';
   default_premium_days: number;
   require_email_verification: boolean;
-  // 裂变设置
+  // 积分设置
+  points_per_page: number;
+  register_bonus_points: number;
+  register_bonus_expire_days: number | null;
+  // 裂变积分设置
   referral_enabled: boolean;
-  referral_register_reward_days: number;
-  referral_invitee_reward_days: number;
-  referral_premium_reward_days: number;
+  referral_inviter_register_points: number;
+  referral_invitee_register_points: number;
+  referral_inviter_upgrade_points: number;
+  referral_points_expire_days: number | null;
   referral_domain: string;
-  // 用量限制
-  daily_image_generation_limit: number;
-  enable_usage_limit: boolean;
+  // 旧版裂变设置（保留兼容）
+  referral_register_reward_days?: number;
+  referral_invitee_reward_days?: number;
+  referral_premium_reward_days?: number;
+  // 用量限制（旧版，保留兼容）
+  daily_image_generation_limit?: number;
+  enable_usage_limit?: boolean;
   // SMTP设置
   smtp_host?: string;
   smtp_port?: number;
@@ -1269,5 +1312,53 @@ export interface TodayUsage {
  */
 export const getTodayUsage = async (): Promise<ApiResponse<TodayUsage>> => {
   const response = await apiClient.get<ApiResponse<TodayUsage>>('/api/usage/today');
+  return response.data;
+};
+
+// ===== 积分 API =====
+
+import type { PointsBalance, PointsTransaction, PointsBatch, PointsConfig } from '@/types';
+
+/**
+ * 获取用户积分余额
+ */
+export const getPointsBalance = async (): Promise<ApiResponse<PointsBalance>> => {
+  const response = await apiClient.get<ApiResponse<PointsBalance>>('/api/points/balance');
+  return response.data;
+};
+
+/**
+ * 获取积分流水记录
+ */
+export const getPointsTransactions = async (params?: {
+  page?: number;
+  per_page?: number;
+  type?: 'income' | 'expense' | 'expired';
+}): Promise<ApiResponse<{
+  transactions: PointsTransaction[];
+  total: number;
+  page: number;
+  per_page: number;
+  pages: number;
+}>> => {
+  const response = await apiClient.get('/api/points/transactions', { params });
+  return response.data;
+};
+
+/**
+ * 获取积分批次明细
+ */
+export const getPointsBalances = async (params?: {
+  include_expired?: boolean;
+}): Promise<ApiResponse<{ balances: PointsBatch[] }>> => {
+  const response = await apiClient.get('/api/points/balances', { params });
+  return response.data;
+};
+
+/**
+ * 获取积分配置
+ */
+export const getPointsConfig = async (): Promise<ApiResponse<PointsConfig>> => {
+  const response = await apiClient.get<ApiResponse<PointsConfig>>('/api/points/config');
   return response.data;
 };

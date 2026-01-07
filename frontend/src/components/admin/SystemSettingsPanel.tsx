@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Mail, Users, Gift, Image, RefreshCw } from 'lucide-react';
+import { Save, Mail, Users, Gift, Image, RefreshCw, Coins } from 'lucide-react';
 import { Button, Input, Card, Loading, useToast } from '@/components/shared';
 import * as api from '@/api/endpoints';
 
@@ -8,15 +8,23 @@ interface SystemSettings {
   default_user_tier: 'free' | 'premium';
   default_premium_days: number;
   require_email_verification: boolean;
-  // 裂变设置
+  // 积分设置
+  points_per_page: number;
+  register_bonus_points: number;
+  register_bonus_expire_days: number | null;
+  // 裂变积分设置
   referral_enabled: boolean;
-  referral_register_reward_days: number;
-  referral_invitee_reward_days: number;
-  referral_premium_reward_days: number;
+  referral_inviter_register_points: number;
+  referral_invitee_register_points: number;
+  referral_inviter_upgrade_points: number;
+  referral_points_expire_days: number | null;
   referral_domain: string;
-  // 用量限制
-  daily_image_generation_limit: number;
-  enable_usage_limit: boolean;
+  // 旧版设置（兼容）
+  referral_register_reward_days?: number;
+  referral_invitee_reward_days?: number;
+  referral_premium_reward_days?: number;
+  daily_image_generation_limit?: number;
+  enable_usage_limit?: boolean;
   // SMTP设置
   smtp_host: string;
   smtp_port: number;
@@ -175,49 +183,73 @@ export const SystemSettingsPanel: React.FC = () => {
         </Card>
       </div>
 
+      {/* 积分设置 */}
+      <Card className="p-6">
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Coins size={20} className="text-yellow-600" />
+          积分设置
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Input
+            label="每页消耗积分"
+            type="number"
+            value={settings.points_per_page || 15}
+            onChange={(e) => setSettings({ ...settings, points_per_page: parseInt(e.target.value) || 15 })}
+            min={1}
+            hint="生成1页PPT消耗的积分"
+          />
+          <Input
+            label="新用户赠送积分"
+            type="number"
+            value={settings.register_bonus_points || 300}
+            onChange={(e) => setSettings({ ...settings, register_bonus_points: parseInt(e.target.value) || 0 })}
+            min={0}
+            hint="新用户注册时赠送的积分"
+          />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">赠送积分有效期（天）</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-banana-500"
+                value={settings.register_bonus_expire_days ?? ''}
+                onChange={(e) => setSettings({ ...settings, register_bonus_expire_days: e.target.value ? parseInt(e.target.value) : null })}
+                min={1}
+                placeholder="天数"
+              />
+              <button
+                type="button"
+                onClick={() => setSettings({ ...settings, register_bonus_expire_days: null })}
+                className={`px-3 py-2 rounded-lg text-sm ${settings.register_bonus_expire_days === null ? 'bg-banana-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              >
+                永久
+              </button>
+            </div>
+          </div>
+        </div>
+      </Card>
+
       {/* 注册设置 */}
       <Card className="p-6">
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <Users size={20} className="text-blue-600" />
           注册设置
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">新用户默认等级</label>
-            <select
-              value={settings.default_user_tier}
-              onChange={(e) => setSettings({ ...settings, default_user_tier: e.target.value as 'free' | 'premium' })}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-banana-500"
-            >
-              <option value="free">免费用户（需自行配置API）</option>
-              <option value="premium">高级会员（可使用系统API）</option>
-            </select>
-          </div>
-          {settings.default_user_tier === 'premium' && (
-            <Input
-              label="默认会员天数"
-              type="number"
-              value={settings.default_premium_days}
-              onChange={(e) => setSettings({ ...settings, default_premium_days: parseInt(e.target.value) || 0 })}
-              min={1}
-            />
-          )}
-          <div className="flex items-center gap-3 md:col-span-2">
-            <input
-              type="checkbox"
-              id="require_email_verification"
-              checked={settings.require_email_verification}
-              onChange={(e) => setSettings({ ...settings, require_email_verification: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-300 text-banana-600 focus:ring-banana-500"
-            />
-            <label htmlFor="require_email_verification" className="text-sm text-gray-700">
-              要求邮箱验证（需先配置SMTP）
-            </label>
-          </div>
+        <div className="flex items-center gap-3">
+          <input
+            type="checkbox"
+            id="require_email_verification"
+            checked={settings.require_email_verification}
+            onChange={(e) => setSettings({ ...settings, require_email_verification: e.target.checked })}
+            className="w-4 h-4 rounded border-gray-300 text-banana-600 focus:ring-banana-500"
+          />
+          <label htmlFor="require_email_verification" className="text-sm text-gray-700">
+            要求邮箱验证（需先配置SMTP）
+          </label>
         </div>
       </Card>
 
-      {/* 裂变设置 */}
+      {/* 裂变积分设置 */}
       <Card className="p-6">
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <Gift size={20} className="text-yellow-600" />
@@ -245,31 +277,53 @@ export const SystemSettingsPanel: React.FC = () => {
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
-                  label="邀请者注册奖励（天）"
+                  label="邀请者注册奖励（积分）"
                   type="number"
-                  value={settings.referral_register_reward_days}
-                  onChange={(e) => setSettings({ ...settings, referral_register_reward_days: parseInt(e.target.value) || 0 })}
+                  value={settings.referral_inviter_register_points || 100}
+                  onChange={(e) => setSettings({ ...settings, referral_inviter_register_points: parseInt(e.target.value) || 0 })}
                   min={0}
-                  hint="被邀请用户注册后，邀请者获得的会员天数"
+                  hint="被邀请用户注册后，邀请者获得的积分"
                 />
                 <Input
-                  label="被邀请者注册奖励（天）"
+                  label="被邀请者注册奖励（积分）"
                   type="number"
-                  value={settings.referral_invitee_reward_days}
-                  onChange={(e) => setSettings({ ...settings, referral_invitee_reward_days: parseInt(e.target.value) || 0 })}
+                  value={settings.referral_invitee_register_points || 100}
+                  onChange={(e) => setSettings({ ...settings, referral_invitee_register_points: parseInt(e.target.value) || 0 })}
                   min={0}
-                  hint="被邀请用户注册后，自己获得的会员天数"
+                  hint="被邀请用户注册后，自己获得的积分"
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
-                  label="邀请者升级奖励（天）"
+                  label="邀请者首充奖励（积分）"
                   type="number"
-                  value={settings.referral_premium_reward_days}
-                  onChange={(e) => setSettings({ ...settings, referral_premium_reward_days: parseInt(e.target.value) || 0 })}
+                  value={settings.referral_inviter_upgrade_points || 450}
+                  onChange={(e) => setSettings({ ...settings, referral_inviter_upgrade_points: parseInt(e.target.value) || 0 })}
                   min={0}
-                  hint="被邀请用户成为付费会员后，邀请者获得的会员天数"
+                  hint="被邀请用户首次充值后，邀请者获得的积分"
                 />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">邀请奖励积分有效期（天）</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-banana-500"
+                      value={settings.referral_points_expire_days ?? ''}
+                      onChange={(e) => setSettings({ ...settings, referral_points_expire_days: e.target.value ? parseInt(e.target.value) : null })}
+                      min={1}
+                      placeholder="天数"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setSettings({ ...settings, referral_points_expire_days: null })}
+                      className={`px-3 py-2 rounded-lg text-sm ${settings.referral_points_expire_days === null ? 'bg-banana-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                    >
+                      永久
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
                   label="邀请链接域名"
                   type="text"
@@ -279,37 +333,6 @@ export const SystemSettingsPanel: React.FC = () => {
                 />
               </div>
             </>
-          )}
-        </div>
-      </Card>
-
-      {/* 用量限制设置 */}
-      <Card className="p-6">
-        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <Image size={20} className="text-green-600" />
-          用量限制设置
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="enable_usage_limit"
-              checked={settings.enable_usage_limit}
-              onChange={(e) => setSettings({ ...settings, enable_usage_limit: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-300 text-banana-600 focus:ring-banana-500"
-            />
-            <label htmlFor="enable_usage_limit" className="text-sm text-gray-700">
-              启用每日用量限制（仅限使用系统API的用户）
-            </label>
-          </div>
-          {settings.enable_usage_limit && (
-            <Input
-              label="每日图片生成限制（页）"
-              type="number"
-              value={settings.daily_image_generation_limit}
-              onChange={(e) => setSettings({ ...settings, daily_image_generation_limit: parseInt(e.target.value) || 0 })}
-              min={1}
-            />
           )}
         </div>
       </Card>

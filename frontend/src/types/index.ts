@@ -149,13 +149,61 @@ export interface User {
   username: string;
   email?: string;
   role: UserRole;
-  tier: UserTier;  // 实际有效的会员等级（过期会员返回 'free'）
+  tier: UserTier;  // 实际有效的会员等级（积分>0返回'premium'）
   stored_tier?: UserTier;  // 数据库存储的原始等级（管理用）
-  premium_expires_at?: string;
+  premium_expires_at?: string;  // 兼容旧版
   is_premium_active?: boolean;
   is_active: boolean;
+  valid_points?: number;  // 有效积分
   created_at: string;
   updated_at: string;
+}
+
+// 积分余额状态
+export interface PointsBalance {
+  valid_points: number;
+  tier: UserTier;
+  is_admin: boolean;
+  expiring_soon: {
+    points: number;
+    days: number;
+    earliest_expire: string | null;
+  };
+  points_per_page: number;
+  can_generate_pages: number;
+}
+
+// 积分流水记录
+export interface PointsTransaction {
+  id: string;
+  type: 'income' | 'expense' | 'expired';
+  amount: number;
+  balance_after: number;
+  description: string;
+  created_at: string;
+}
+
+// 积分批次
+export interface PointsBatch {
+  id: string;
+  amount: number;
+  remaining: number;
+  source: string;
+  source_note?: string;
+  expires_at: string | null;
+  is_expired: boolean;
+  is_expiring_soon: boolean;
+  created_at: string;
+}
+
+// 积分配置
+export interface PointsConfig {
+  points_per_page: number;
+  register_bonus_points: number;
+  register_bonus_expire_days: number | null;
+  referral_inviter_register_points: number;
+  referral_invitee_register_points: number;
+  referral_inviter_upgrade_points: number;
 }
 
 // 登录请求

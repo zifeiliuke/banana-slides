@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Home, Key, Image, Zap, Save, RotateCcw, Globe, FileText, User, Crown, Lock, Gift, Share2, Copy, Check, Users } from 'lucide-react';
+import { Home, Key, Image, Zap, Save, RotateCcw, Globe, FileText, User, Crown, Lock, Gift, Share2, Copy, Check, Users, Shield, Coins } from 'lucide-react';
 import { Button, Input, Card, Loading, useToast, useConfirm } from '@/components/shared';
 import { UserMenu } from '@/components/auth';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -582,6 +582,25 @@ const AccountSettings: React.FC = () => {
   const [isLoadingReferral, setIsLoadingReferral] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
+  // 积分状态
+  const [pointsBalance, setPointsBalance] = useState<{
+    valid_points: number;
+    expiring_soon: { points: number; days: number; earliest_expire: string | null };
+    points_per_page: number;
+    can_generate_pages: number;
+  } | null>(null);
+
+  const loadPointsBalance = async () => {
+    try {
+      const response = await api.getPointsBalance();
+      if (response.success && response.data) {
+        setPointsBalance(response.data);
+      }
+    } catch (error) {
+      console.error('加载积分状态失败:', error);
+    }
+  };
+
   const loadReferralStats = async () => {
     setIsLoadingReferral(true);
     try {
@@ -598,6 +617,7 @@ const AccountSettings: React.FC = () => {
 
   useEffect(() => {
     loadReferralStats();
+    loadPointsBalance();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -659,8 +679,10 @@ const AccountSettings: React.FC = () => {
         updateUser({
           tier: response.data.tier as 'free' | 'premium',
           is_premium_active: response.data.is_premium_active,
-          premium_expires_at: response.data.premium_expires_at,
+          valid_points: response.data.new_balance,
         });
+        // 刷新积分状态
+        loadPointsBalance();
       }
     } catch (error: any) {
       show({
@@ -713,38 +735,58 @@ const AccountSettings: React.FC = () => {
           </div>
         </div>
 
-        {/* 会员状态 */}
+        {/* 积分状态 */}
         <div>
           <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
             <Crown size={20} />
-            <span className="ml-2">会员状态</span>
+            <span className="ml-2">积分与会员</span>
           </h2>
           <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-gray-600">当前等级</span>
-              <span
-                className={`font-medium flex items-center gap-1 ${
-                  user.tier === 'premium' ? 'text-yellow-600' : 'text-gray-600'
-                }`}
-              >
-                {user.tier === 'premium' && <Crown size={16} />}
-                {user.tier === 'premium' ? '高级会员' : '免费用户'}
-              </span>
-            </div>
-            {user.tier === 'premium' && (
+            {user.role === 'admin' ? (
               <div className="flex items-center justify-between">
-                <span className="text-gray-600">到期时间</span>
-                <span className="font-medium">
-                  {user.premium_expires_at ? new Date(user.premium_expires_at).toLocaleDateString() : '永久'}
+                <span className="text-gray-600">身份</span>
+                <span className="font-medium text-red-500 flex items-center gap-1">
+                  <Shield size={16} />
+                  管理员（无限制）
                 </span>
               </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">当前等级</span>
+                  <span
+                    className={`font-medium flex items-center gap-1 ${
+                      user.tier === 'premium' ? 'text-yellow-600' : 'text-gray-600'
+                    }`}
+                  >
+                    {user.tier === 'premium' && <Crown size={16} />}
+                    {user.tier === 'premium' ? '高级会员' : '免费用户'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">积分余额</span>
+                  <span className="font-bold text-xl text-banana-600">
+                    {pointsBalance?.valid_points ?? user.valid_points ?? 0}
+                  </span>
+                </div>
+                {pointsBalance && pointsBalance.expiring_soon.points > 0 && (
+                  <div className="bg-orange-50 rounded-lg p-3 text-sm">
+                    <span className="text-orange-600">
+                      <strong>{pointsBalance.expiring_soon.points}</strong> 积分将在{' '}
+                      <strong>{pointsBalance.expiring_soon.days}</strong> 天内过期
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-500">每页消耗</span>
+                  <span className="text-gray-700">{pointsBalance?.points_per_page ?? 15} 积分</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-500">可生成页数</span>
+                  <span className="text-gray-700">{pointsBalance?.can_generate_pages ?? 0} 页</span>
+                </div>
+              </>
             )}
-            <div className="flex items-center justify-between">
-              <span className="text-gray-600">会员状态</span>
-              <span className={`font-medium ${user.is_premium_active ? 'text-green-600' : 'text-gray-500'}`}>
-                {user.is_premium_active ? '有效' : '未激活'}
-              </span>
-            </div>
           </div>
         </div>
 
@@ -798,7 +840,7 @@ const AccountSettings: React.FC = () => {
               value={redeemCode}
               onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
             />
-            <p className="text-sm text-gray-500">输入有效的充值码可激活或延长您的高级会员资格，网营内购请咨询【流客】。</p>
+            <p className="text-sm text-gray-500">输入有效的充值码可充值积分，积分可用于生成PPT页面。</p>
             <div className="pt-2">
               <Button variant="primary" icon={<Gift size={18} />} onClick={handleRedeemCode} loading={isRedeeming}>
                 {isRedeeming ? '兑换中...' : '立即兑换'}

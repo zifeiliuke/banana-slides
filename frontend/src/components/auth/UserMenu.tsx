@@ -1,12 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, LogOut, Settings, Crown, Shield } from 'lucide-react';
+import { User, LogOut, Settings, Crown, Shield, Coins } from 'lucide-react';
 import { useAuthStore } from '@/store/useAuthStore';
+import * as api from '@/api/endpoints';
+import type { PointsBalance } from '@/types';
 
 export const UserMenu: React.FC = () => {
   const navigate = useNavigate();
   const { user, logout, isAuthenticated } = useAuthStore();
   const [isOpen, setIsOpen] = useState(false);
+  const [pointsBalance, setPointsBalance] = useState<PointsBalance | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // 点击外部关闭菜单
@@ -21,6 +24,19 @@ export const UserMenu: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // 获取积分余额
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      api.getPointsBalance().then(res => {
+        if (res.success && res.data) {
+          setPointsBalance(res.data);
+        }
+      }).catch(() => {
+        // 忽略错误
+      });
+    }
+  }, [isAuthenticated, user]);
+
   if (!isAuthenticated || !user) {
     return null;
   }
@@ -30,7 +46,9 @@ export const UserMenu: React.FC = () => {
     navigate('/login');
   };
 
+  const isAdmin = user.role === 'admin';
   const isPremium = user.tier === 'premium' && user.is_premium_active;
+  const validPoints = pointsBalance?.valid_points ?? user.valid_points ?? 0;
 
   return (
     <div className="relative" ref={menuRef}>
@@ -62,7 +80,12 @@ export const UserMenu: React.FC = () => {
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-gray-900 truncate">{user.username}</p>
                 <p className="text-xs text-gray-500 flex items-center gap-1">
-                  {isPremium ? (
+                  {isAdmin ? (
+                    <>
+                      <Shield size={12} className="text-red-400" />
+                      <span>管理员</span>
+                    </>
+                  ) : isPremium ? (
                     <>
                       <Crown size={12} className="text-yellow-500" />
                       <span>高级会员</span>
@@ -73,6 +96,23 @@ export const UserMenu: React.FC = () => {
                 </p>
               </div>
             </div>
+            {/* 积分余额 */}
+            {!isAdmin && (
+              <div className="mt-2 pt-2 border-t border-gray-50">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-500 flex items-center gap-1">
+                    <Coins size={14} className="text-yellow-500" />
+                    积分余额
+                  </span>
+                  <span className="font-semibold text-banana-600">{validPoints}</span>
+                </div>
+                {pointsBalance && pointsBalance.expiring_soon.points > 0 && (
+                  <p className="text-xs text-orange-500 mt-1">
+                    {pointsBalance.expiring_soon.points} 积分将在 {pointsBalance.expiring_soon.days} 天内过期
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* 菜单项 */}
