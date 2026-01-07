@@ -5,6 +5,7 @@ import uuid
 import secrets
 import string
 from datetime import datetime, timezone, timedelta
+from sqlalchemy import func, or_
 from werkzeug.security import generate_password_hash, check_password_hash
 from . import db
 
@@ -20,8 +21,11 @@ class User(db.Model):
     email = db.Column(db.String(100), unique=True, nullable=True)
     password_hash = db.Column(db.String(256), nullable=False)
     role = db.Column(db.String(20), nullable=False, default='user')  # 'user' | 'admin'
-    tier = db.Column(db.String(20), nullable=False, default='free')  # 'free' | 'premium'
-    premium_expires_at = db.Column(db.DateTime, nullable=True)  # 高级会员过期时间
+
+    # ========== 兼容旧字段（迁移后可删除） ==========
+    tier = db.Column(db.String(20), nullable=True, default='free')  # [废弃] 'free' | 'premium'
+    premium_expires_at = db.Column(db.DateTime, nullable=True)  # [废弃] 高级会员过期时间
+
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
@@ -56,19 +60,32 @@ class User(db.Model):
         """Check password against hash"""
         return check_password_hash(self.password_hash, password)
 
-    def is_premium_active(self) -> bool:
-        """Check if user has active premium subscription"""
-        if self.tier != 'premium':
-            return False
-        # If no expiration date, it's permanent premium (e.g., admin)
-        if self.premium_expires_at is None:
-            return True
-        # Ensure timezone-aware comparison
+    def get_valid_points(self) -> int:
+        """
+        获取用户当前有效积分总数
+        基于积分批次表动态计算
+        """
+        from .points import PointsBalance
         now = datetime.now(timezone.utc)
-        expires_at = self.premium_expires_at
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        return expires_at > now
+        total = db.session.query(func.sum(PointsBalance.remaining)).filter(
+            PointsBalance.user_id == self.id,
+            PointsBalance.remaining > 0,
+            or_(
+                PointsBalance.expires_at.is_(None),  # 永不过期
+                PointsBalance.expires_at > now  # 未过期
+            )
+        ).scalar()
+        return total or 0
+
+    def is_premium_active(self) -> bool:
+        """
+        检查用户是否为有效会员
+        新逻辑：有效积分 > 0 即为会员
+        管理员始终为会员
+        """
+        if self.is_admin():
+            return True
+        return self.get_valid_points() > 0
 
     def is_admin(self) -> bool:
         """Check if user is admin"""
@@ -77,25 +94,30 @@ class User(db.Model):
     def get_effective_tier(self) -> str:
         """
         获取用户实际有效的会员等级
-
-        如果用户 tier 是 premium 但会员已过期，返回 'free'
-        否则返回数据库存储的 tier 值
+        新逻辑：基于有效积分判断
+        - 有效积分 > 0: premium
+        - 有效积分 <= 0: free
+        - 管理员始终为 premium
         """
-        if self.tier == 'premium' and not self.is_premium_active():
-            return 'free'
-        return self.tier
+        if self.is_admin():
+            return 'premium'
+        return 'premium' if self.get_valid_points() > 0 else 'free'
 
     def to_dict(self, include_sensitive=False):
         """Convert to dictionary"""
+        valid_points = self.get_valid_points()
         data = {
             'id': self.id,
             'username': self.username,
             'email': self.email,
             'email_verified': self.email_verified,
             'role': self.role,
-            'tier': self.get_effective_tier(),  # 返回实际有效的会员等级
-            'stored_tier': self.tier,  # 数据库存储的原始等级（管理用）
+            'tier': self.get_effective_tier(),  # 基于积分动态计算
             'is_premium_active': self.is_premium_active(),
+            # 积分相关（新）
+            'valid_points': valid_points,
+            # 兼容旧字段
+            'stored_tier': self.tier,
             'premium_expires_at': self.premium_expires_at.isoformat() if self.premium_expires_at else None,
             'is_active': self.is_active,
             'created_at': self.created_at.isoformat() if self.created_at else None,
@@ -130,7 +152,8 @@ class User(db.Model):
 
     def add_premium_days(self, days: int):
         """
-        增加会员天数
+        [废弃] 增加会员天数 - 仅用于迁移期间兼容
+        新系统请使用 PointsService.grant_points()
 
         Args:
             days: 要增加的天数
@@ -138,7 +161,6 @@ class User(db.Model):
         now = datetime.now(timezone.utc)
 
         if self.tier == 'premium' and self.premium_expires_at:
-            # 已是会员，在现有基础上延长
             expires_at = self.premium_expires_at
             if expires_at.tzinfo is None:
                 expires_at = expires_at.replace(tzinfo=timezone.utc)
@@ -147,7 +169,6 @@ class User(db.Model):
             else:
                 self.premium_expires_at = now + timedelta(days=days)
         else:
-            # 新开通会员
             self.premium_expires_at = now + timedelta(days=days)
 
         self.tier = 'premium'

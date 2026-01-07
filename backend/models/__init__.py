@@ -20,6 +20,7 @@ from .system_settings import SystemSettings
 from .referral import Referral
 from .daily_usage import DailyUsage
 from .email_verification import EmailVerification
+from .points import PointsBalance, PointsTransaction
 
 __all__ = [
     'db',
@@ -39,5 +40,7 @@ __all__ = [
     'Referral',
     'DailyUsage',
     'EmailVerification',
+    'PointsBalance',
+    'PointsTransaction',
 ]
 
