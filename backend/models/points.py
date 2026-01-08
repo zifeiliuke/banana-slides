@@ -38,8 +38,8 @@ class PointsBalance(db.Model):
         db.Index('idx_points_balance_source', 'source', 'source_id'),
     )
 
-    # Relationships
-    user = db.relationship('User', backref=db.backref('points_balances', lazy='dynamic'))
+    # Relationships - passive_deletes=True 让数据库处理级联删除
+    user = db.relationship('User', backref=db.backref('points_balances', lazy='dynamic', passive_deletes=True))
 
     # Source 枚举值
     SOURCE_REGISTER = 'register'  # 注册赠送
@@ -141,9 +141,9 @@ class PointsTransaction(db.Model):
         db.Index('idx_points_transaction_user_created', 'user_id', 'created_at'),
     )
 
-    # Relationships
-    user = db.relationship('User', backref=db.backref('points_transactions', lazy='dynamic'))
-    balance = db.relationship('PointsBalance', backref=db.backref('transactions', lazy='dynamic'))
+    # Relationships - passive_deletes=True 让数据库处理级联删除
+    user = db.relationship('User', backref=db.backref('points_transactions', lazy='dynamic', passive_deletes=True))
+    balance = db.relationship('PointsBalance', backref=db.backref('transactions', lazy='dynamic', passive_deletes=True))
 
     # Type 枚举值
     TYPE_INCOME = 'income'  # 积分收入
