@@ -87,6 +87,10 @@ const debouncedUpdatePage = debounce(
   1000
 );
 
+  // 合并同一项目的并发 syncProject 请求，避免短时间内触发大量 GET /api/projects/{id}
+  let syncProjectInFlight: Promise<void> | null = null;
+  let syncProjectInFlightId: string | null = null;
+
   return {
   // 初始状态
   currentProject: null,
@@ -186,58 +190,85 @@ const debouncedUpdatePage = debounce(
       return;
     }
 
-    try {
-      const response = await api.getProject(targetProjectId);
-      if (response.data) {
-        const project = normalizeProject(response.data);
-        console.log('[syncProject] 同步项目数据:', {
-          projectId: project.id,
-          pagesCount: project.pages?.length || 0,
-          status: project.status
-        });
-        set({ currentProject: project });
-        // 确保 localStorage 中保存了项目ID
-        localStorage.setItem('currentProjectId', project.id!);
-      }
-    } catch (error: any) {
-      // 提取更详细的错误信息
-      let errorMessage = '同步项目失败';
-      let shouldClearStorage = false;
-      
-      if (error.response) {
-        // 服务器返回了错误响应
-        const errorData = error.response.data;
-        if (error.response.status === 404) {
-          // 404错误：项目不存在，清除localStorage
-          errorMessage = errorData?.error?.message || '项目不存在，可能已被删除';
-          shouldClearStorage = true;
-        } else if (errorData?.error?.message) {
-          // 从后端错误格式中提取消息
-          errorMessage = errorData.error.message;
-        } else if (errorData?.message) {
-          errorMessage = errorData.message;
-        } else if (errorData?.error) {
-          errorMessage = typeof errorData.error === 'string' ? errorData.error : errorData.error.message || '请求失败';
-        } else {
-          errorMessage = `请求失败: ${error.response.status}`;
-        }
-      } else if (error.request) {
-        // 请求已发送但没有收到响应
-        errorMessage = '网络错误，请检查后端服务是否启动';
-      } else if (error.message) {
-        // 其他错误
-        errorMessage = error.message;
-      }
-      
-      // 如果项目不存在，清除localStorage并重置当前项目
-      if (shouldClearStorage) {
-        console.warn('[syncProject] 项目不存在，清除localStorage');
-        localStorage.removeItem('currentProjectId');
-        set({ currentProject: null, error: normalizeErrorMessage(errorMessage) });
-      } else {
-        set({ error: normalizeErrorMessage(errorMessage) });
-      }
+    if (syncProjectInFlight && syncProjectInFlightId === targetProjectId) {
+      return syncProjectInFlight;
     }
+
+    syncProjectInFlightId = targetProjectId;
+    syncProjectInFlight = (async () => {
+      try {
+        const response = await api.getProject(targetProjectId);
+        if (response.data) {
+          const project = normalizeProject(response.data);
+          console.log('[syncProject] 同步项目数据:', {
+            projectId: project.id,
+            pagesCount: project.pages?.length || 0,
+            status: project.status
+          });
+          set({ currentProject: project });
+          // 确保 localStorage 中保存了项目ID
+          localStorage.setItem('currentProjectId', project.id!);
+        }
+      } catch (error: any) {
+        // 提取更详细的错误信息
+        let errorMessage = '同步项目失败';
+        let shouldClearStorage = false;
+
+        const status = error?.response?.status as number | undefined;
+        const isTransient = status === 429 || status === 502 || status === 503 || status === 504;
+        const hasOngoingGen =
+          Object.keys(get().pageGeneratingTasks || {}).length > 0 ||
+          Object.keys(get().pageDescriptionGeneratingTasks || {}).length > 0 ||
+          !!get().activeTaskId;
+
+        if (error.response) {
+          // 服务器返回了错误响应
+          const errorData = error.response.data;
+          if (error.response.status === 404) {
+            // 404错误：项目不存在，清除localStorage
+            errorMessage = errorData?.error?.message || '项目不存在，可能已被删除';
+            shouldClearStorage = true;
+          } else if (errorData?.error?.message) {
+            // 从后端错误格式中提取消息
+            errorMessage = errorData.error.message;
+          } else if (errorData?.message) {
+            errorMessage = errorData.message;
+          } else if (errorData?.error) {
+            errorMessage = typeof errorData.error === 'string' ? errorData.error : errorData.error.message || '请求失败';
+          } else {
+            errorMessage = `请求失败: ${error.response.status}`;
+          }
+        } else if (error.request) {
+          // 请求已发送但没有收到响应
+          errorMessage = '网络错误，请检查后端服务是否启动';
+        } else if (error.message) {
+          // 其他错误
+          errorMessage = error.message;
+        }
+
+        // 任务进行中时，短暂的 429/5xx 可能来自 nginx 限流或后端瞬时压力，不要立即给用户报错打断流程
+        if (!shouldClearStorage && hasOngoingGen && isTransient) {
+          console.warn('[syncProject] transient error during generation, will recover:', errorMessage);
+          return;
+        }
+
+        // 如果项目不存在，清除localStorage并重置当前项目
+        if (shouldClearStorage) {
+          console.warn('[syncProject] 项目不存在，清除localStorage');
+          localStorage.removeItem('currentProjectId');
+          set({ currentProject: null, error: normalizeErrorMessage(errorMessage) });
+        } else {
+          set({ error: normalizeErrorMessage(errorMessage) });
+        }
+      }
+    })().finally(() => {
+      if (syncProjectInFlightId === targetProjectId) {
+        syncProjectInFlight = null;
+        syncProjectInFlightId = null;
+      }
+    });
+
+    return syncProjectInFlight;
   },
 
   // 本地更新页面（乐观更新）

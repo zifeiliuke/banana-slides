@@ -131,52 +131,91 @@ export const SlidePreview: React.FC = () => {
     return currentProject?.pages.filter(p => p.id && p.generated_image_path) || [];
   }, [currentProject?.pages]);
 
-  // 加载项目数据 & 用户模板
+  // 加载项目数据
   useEffect(() => {
-    if (projectId && (!currentProject || currentProject.id !== projectId)) {
+    if (projectId && currentProject?.id !== projectId) {
       // 直接使用 projectId 同步项目数据
       syncProject(projectId);
     }
-    
-    // 加载用户模板列表（用于按需获取File）
+  }, [projectId, currentProject?.id, syncProject]);
+
+  // 加载用户模板列表（用于按需获取File）
+  useEffect(() => {
+    let cancelled = false;
     const loadTemplates = async () => {
       try {
         const response = await listUserTemplates();
-        if (response.data?.templates) {
+        if (!cancelled && response.data?.templates) {
           setUserTemplates(response.data.templates);
         }
       } catch (error) {
-        console.error('加载用户模板失败:', error);
+        if (!cancelled) console.error('加载用户模板失败:', error);
       }
     };
     loadTemplates();
-  }, [projectId, currentProject, syncProject]);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 兜底：如果页面处于 GENERATING 但没有在本地轮询 taskId（例如后端重启/页面刷新后），
   // 定时同步项目，直到生成结束，避免必须手动刷新才能看到生成结果。
+  const fallbackSyncRef = useRef<{
+    active: boolean;
+    shouldContinue: boolean;
+    timer?: number;
+    backoff?: ReturnType<typeof createBackoff>;
+  }>({ active: false, shouldContinue: false });
+
+  const stopFallbackSync = () => {
+    const ref = fallbackSyncRef.current;
+    ref.active = false;
+    ref.shouldContinue = false;
+    if (ref.timer) window.clearTimeout(ref.timer);
+    ref.timer = undefined;
+    ref.backoff = undefined;
+  };
+
+  useEffect(() => {
+    return () => stopFallbackSync();
+  }, []);
+
   useEffect(() => {
     if (!projectId || !currentProject) return;
 
     const hasGenerating = currentProject.pages?.some((p) => p.status === 'GENERATING');
     const hasLocalPolling = Object.keys(pageGeneratingTasks || {}).length > 0;
-    if (!hasGenerating || hasLocalPolling) return;
+    const shouldFallbackSync = !!hasGenerating && !hasLocalPolling;
 
-    let cancelled = false;
-    let timer: number | undefined;
-    const backoff = createBackoff({ minMs: 1500, maxMs: 8000, factor: 1.5, jitterRatio: 0.2 });
+    const ref = fallbackSyncRef.current;
+    ref.shouldContinue = shouldFallbackSync;
+
+    if (!shouldFallbackSync) {
+      if (ref.active) stopFallbackSync();
+      return;
+    }
+
+    if (ref.active) return;
+
+    ref.active = true;
+    ref.backoff = createBackoff({ minMs: 1500, maxMs: 8000, factor: 1.5, jitterRatio: 0.2 });
 
     const tick = async () => {
-      if (cancelled) return;
+      if (!ref.active) return;
+      if (!ref.shouldContinue) {
+        stopFallbackSync();
+        return;
+      }
       await syncProject(projectId);
-      const delay = backoff.next();
-      timer = window.setTimeout(tick, delay);
+      if (!ref.active || !ref.shouldContinue) {
+        stopFallbackSync();
+        return;
+      }
+      const delay = ref.backoff!.next();
+      ref.timer = window.setTimeout(tick, delay);
     };
 
     tick();
-    return () => {
-      cancelled = true;
-      if (timer) window.clearTimeout(timer);
-    };
   }, [projectId, currentProject, pageGeneratingTasks, syncProject]);
 
   // 当项目加载后，初始化额外要求和风格描述
@@ -210,6 +249,8 @@ export const SlidePreview: React.FC = () => {
   }, [currentProject?.id, currentProject?.extra_requirements, currentProject?.template_style]);
 
   // 加载当前页面的历史版本
+  const selectedPageId = currentProject?.pages?.[selectedIndex]?.id;
+  const selectedPageImagePath = currentProject?.pages?.[selectedIndex]?.generated_image_path;
   useEffect(() => {
     const loadVersions = async () => {
       if (!currentProject || !projectId || selectedIndex < 0 || selectedIndex >= currentProject.pages.length) {
@@ -237,7 +278,7 @@ export const SlidePreview: React.FC = () => {
     };
 
     loadVersions();
-  }, [currentProject, selectedIndex, projectId]);
+  }, [projectId, selectedPageId, selectedPageImagePath]);
 
   const handleGenerateAll = async () => {
     const pageIds = getSelectedPageIdsForExport();
