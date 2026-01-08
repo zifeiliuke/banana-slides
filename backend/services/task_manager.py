@@ -3,6 +3,7 @@ Task Manager - handles background tasks using ThreadPoolExecutor
 No need for Celery or Redis, uses in-memory task tracking
 """
 import logging
+import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, List, Dict, Any
@@ -20,17 +21,65 @@ class TaskManager:
     
     def __init__(self, max_workers: int = 4):
         """Initialize task manager"""
-        self.executor = ThreadPoolExecutor(max_workers=max_workers)
-        self.active_tasks = {}  # task_id -> Future
+        self.max_workers = max_workers
+        self._rq_enabled = False
+
+        try:
+            from services.task_queue import is_rq_enabled
+
+            self._rq_enabled = is_rq_enabled()
+        except Exception:
+            # 队列模块不可用时回退到本地线程池
+            self._rq_enabled = False
+
+        self.executor = None if self._rq_enabled else ThreadPoolExecutor(max_workers=max_workers)
+        self.active_tasks = {}  # task_id -> Future (local mode only)
         self.lock = threading.Lock()
     
     def submit_task(self, task_id: str, func: Callable, *args, **kwargs):
         """Submit a background task"""
+        # Internal meta for queue mode (will be stripped before local execution)
+        user_id = kwargs.pop("_rq_user_id", None)
+
+        if self._rq_enabled:
+            from services.task_queue import enqueue_task
+
+            func_fqn = f"{func.__module__}.{func.__name__}"
+
+            # Only pass pickle-serializable payload to rq jobs.
+            # We intentionally drop non-serializable objects (ai_service, file_service, app, etc.)
+            drop_keys = {
+                "ai_service",
+                "file_service",
+                "app",
+                "project_context",
+            }
+            payload = {k: v for k, v in kwargs.items() if k not in drop_keys}
+
+            try:
+                enqueue_task(task_id, func_fqn, user_id=user_id, payload=payload)
+                return
+            except Exception as e:
+                logger.error("Failed to enqueue task %s to RQ: %s", task_id, e, exc_info=True)
+                try:
+                    task = Task.query.get(task_id)
+                    if task:
+                        task.status = "FAILED"
+                        task.error_message = f"QUEUE_ERROR: {e}"
+                        task.completed_at = datetime.utcnow()
+                        db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                raise
+
+        if self.executor is None:
+            raise RuntimeError("Local executor is not initialized")
+
         future = self.executor.submit(func, task_id, *args, **kwargs)
-        
+
         with self.lock:
             self.active_tasks[task_id] = future
-        
+
         # Add callback to clean up when done and log exceptions
         future.add_done_callback(lambda f: self._task_done_callback(task_id, f))
     
@@ -59,7 +108,8 @@ class TaskManager:
     
     def shutdown(self):
         """Shutdown the executor"""
-        self.executor.shutdown(wait=True)
+        if self.executor:
+            self.executor.shutdown(wait=True)
 
 
 # Global task manager instance
@@ -470,7 +520,9 @@ def generate_images_task(task_id: str, project_id: str, ai_service, file_service
                     from models import User
                     user = User.query.get(project.user_id)
                     if user:
-                        UsageService.record_image_generation(user, completed)
+                        ok, msg = UsageService.consume_and_record(user, completed)
+                        if not ok:
+                            logger.warning(f"Failed to consume points for image generation (user={user.username}): {msg}")
                 except Exception as usage_error:
                     logger.warning(f"Failed to record usage: {usage_error}")
         
@@ -595,7 +647,9 @@ def generate_single_page_image_task(task_id: str, project_id: str, page_id: str,
                     from models import User
                     user = User.query.get(project.user_id)
                     if user:
-                        UsageService.record_image_generation(user, 1)
+                        ok, msg = UsageService.consume_and_record(user, 1)
+                        if not ok:
+                            logger.warning(f"Failed to consume points for image generation (user={user.username}): {msg}")
             except Exception as usage_error:
                 logger.warning(f"Failed to record usage: {usage_error}")
 
@@ -708,7 +762,9 @@ def edit_page_image_task(task_id: str, project_id: str, page_id: str,
                     from models import User
                     user = User.query.get(project.user_id)
                     if user:
-                        UsageService.record_image_generation(user, 1)
+                        ok, msg = UsageService.consume_and_record(user, 1)
+                        if not ok:
+                            logger.warning(f"Failed to consume points for image generation (user={user.username}): {msg}")
             except Exception as usage_error:
                 logger.warning(f"Failed to record usage: {usage_error}")
 

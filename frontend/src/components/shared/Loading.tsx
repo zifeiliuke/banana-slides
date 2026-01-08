@@ -8,6 +8,10 @@ interface ProgressData {
   percent?: number;
   current_step?: string;
   messages?: string[];
+  queue_position?: number | null;
+  queue_length?: number;
+  queue_name?: string | null;
+  queue_status?: string;
 }
 
 interface LoadingProps {
@@ -46,6 +50,10 @@ export const Loading: React.FC<LoadingProps> = ({
   
   const percent = getPercent();
   const hasMessages = progress?.messages && progress.messages.length > 0;
+  const queueText =
+    progress?.queue_status === 'queued' && progress?.queue_position && progress?.queue_length
+      ? `排队中：第 ${progress.queue_position}/${progress.queue_length}`
+      : null;
   
   const content = (
     <div className="flex flex-col items-center justify-center max-w-md w-full px-4">
@@ -61,6 +69,9 @@ export const Loading: React.FC<LoadingProps> = ({
       {/* 进度条 */}
       {progress && (
         <div className="w-full">
+          {queueText && (
+            <div className="text-xs text-gray-500 mb-1 text-center">{queueText}</div>
+          )}
           <div className="flex justify-end text-sm text-gray-600 mb-2">
             <span className="font-medium">{percent}%</span>
           </div>
@@ -131,4 +142,3 @@ export const Skeleton: React.FC<{ className?: string }> = ({ className }) => {
     />
   );
 };
-

@@ -439,17 +439,18 @@ def generate_page_image(project_id, page_id):
         task_manager.submit_task(
             task.id,
             generate_single_page_image_task,
-            project_id,
-            page_id,
-            ai_service,
-            file_service,
-            outline,
-            use_template,
-            current_app.config['DEFAULT_ASPECT_RATIO'],
-            current_app.config['DEFAULT_RESOLUTION'],
-            app,
-            combined_requirements if combined_requirements.strip() else None,
-            language
+            project_id=project_id,
+            page_id=page_id,
+            ai_service=ai_service,
+            file_service=file_service,
+            outline=outline,
+            use_template=use_template,
+            aspect_ratio=current_app.config['DEFAULT_ASPECT_RATIO'],
+            resolution=current_app.config['DEFAULT_RESOLUTION'],
+            app=app,
+            extra_requirements=combined_requirements if combined_requirements.strip() else None,
+            language=language,
+            _rq_user_id=current_user.id,
         )
 
         # Return task_id immediately
@@ -600,17 +601,18 @@ def edit_page_image(project_id, page_id):
         task_manager.submit_task(
             task.id,
             edit_page_image_task,
-            project_id,
-            page_id,
-            data['edit_instruction'],
-            ai_service,
-            file_service,
-            current_app.config['DEFAULT_ASPECT_RATIO'],
-            current_app.config['DEFAULT_RESOLUTION'],
-            original_description,
-            additional_ref_images if additional_ref_images else None,
-            str(temp_dir) if temp_dir else None,
-            app
+            project_id=project_id,
+            page_id=page_id,
+            edit_instruction=data['edit_instruction'],
+            ai_service=ai_service,
+            file_service=file_service,
+            aspect_ratio=current_app.config['DEFAULT_ASPECT_RATIO'],
+            resolution=current_app.config['DEFAULT_RESOLUTION'],
+            original_description=original_description,
+            additional_ref_images=additional_ref_images if additional_ref_images else None,
+            temp_dir=str(temp_dir) if temp_dir else None,
+            app=app,
+            _rq_user_id=get_current_user().id,
         )
 
         # Return task_id immediately

@@ -3,6 +3,7 @@ import { Image as ImageIcon, ImagePlus, Upload, X, FolderOpen } from 'lucide-rea
 import { Modal, Textarea, Button, useToast, MaterialSelector, Skeleton } from '@/components/shared';
 import { generateMaterialImage, getTaskStatus } from '@/api/endpoints';
 import { getImageUrl } from '@/api/client';
+import { createBackoff } from '@/utils/polling';
 import { materialUrlToFile } from './MaterialSelector';
 import type { Material } from '@/api/endpoints';
 import type { Task } from '@/types';
@@ -90,13 +91,13 @@ export const MaterialGeneratorModal: React.FC<MaterialGeneratorModalProps> = ({
     }
   };
 
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pollingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // 清理轮询
   useEffect(() => {
     return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
+      if (pollingTimeoutRef.current) {
+        clearTimeout(pollingTimeoutRef.current);
       }
     };
   }, []);
@@ -105,17 +106,22 @@ export const MaterialGeneratorModal: React.FC<MaterialGeneratorModalProps> = ({
     const targetProjectId = projectId || 'global'; // 使用'global'作为Task的project_id
     const maxAttempts = 60; // 最多轮询60次（约2分钟）
     let attempts = 0;
+    const backoff = createBackoff({ minMs: 1000, maxMs: 8000, factor: 1.5, jitterRatio: 0.2 });
+    let lastKey = '';
 
     const poll = async () => {
       try {
         attempts++;
         const response = await getTaskStatus(targetProjectId, taskId);
-        const task: Task = response.data;
+        const task = response.data as Task | undefined;
+        if (!task) {
+          throw new Error('响应中没有任务数据');
+        }
 
         if (task.status === 'COMPLETED') {
           // 任务完成，从progress中获取结果
-          const progress = task.progress || {};
-          const imageUrl = progress.image_url;
+          const progress: any = task.progress || {};
+          const imageUrl: string | undefined = progress.image_url;
           
           if (imageUrl) {
             setPreviewUrl(getImageUrl(imageUrl));
@@ -128,9 +134,9 @@ export const MaterialGeneratorModal: React.FC<MaterialGeneratorModalProps> = ({
           }
           
           setIsGenerating(false);
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
+          if (pollingTimeoutRef.current) {
+            clearTimeout(pollingTimeoutRef.current);
+            pollingTimeoutRef.current = null;
           }
         } else if (task.status === 'FAILED') {
           show({
@@ -138,19 +144,26 @@ export const MaterialGeneratorModal: React.FC<MaterialGeneratorModalProps> = ({
             type: 'error',
           });
           setIsGenerating(false);
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
+          if (pollingTimeoutRef.current) {
+            clearTimeout(pollingTimeoutRef.current);
+            pollingTimeoutRef.current = null;
           }
         } else if (task.status === 'PENDING' || task.status === 'PROCESSING') {
           // 继续轮询
           if (attempts >= maxAttempts) {
-            show({ message: '素材生成超时，请稍后查看素材库', type: 'warning' });
+            show({ message: '素材生成超时，请稍后查看素材库', type: 'info' });
             setIsGenerating(false);
-            if (pollingIntervalRef.current) {
-              clearInterval(pollingIntervalRef.current);
-              pollingIntervalRef.current = null;
+            if (pollingTimeoutRef.current) {
+              clearTimeout(pollingTimeoutRef.current);
+              pollingTimeoutRef.current = null;
             }
+          } else {
+            const key = JSON.stringify({ status: task.status, progress: task.progress, queue: (task as any).queue });
+            if (key !== lastKey) {
+              backoff.reset();
+              lastKey = key;
+            }
+            pollingTimeoutRef.current = setTimeout(poll, backoff.next());
           }
         }
       } catch (error: any) {
@@ -158,17 +171,18 @@ export const MaterialGeneratorModal: React.FC<MaterialGeneratorModalProps> = ({
         if (attempts >= maxAttempts) {
           show({ message: '轮询任务状态失败，请稍后查看素材库', type: 'error' });
           setIsGenerating(false);
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
+          if (pollingTimeoutRef.current) {
+            clearTimeout(pollingTimeoutRef.current);
+            pollingTimeoutRef.current = null;
           }
+        } else {
+          pollingTimeoutRef.current = setTimeout(poll, backoff.next());
         }
       }
     };
 
-    // 立即执行一次，然后每2秒轮询一次
+    // 立即执行一次，然后退避轮询
     poll();
-    pollingIntervalRef.current = setInterval(poll, 2000);
   };
 
   const handleGenerate = async () => {
@@ -345,7 +359,7 @@ export const MaterialGeneratorModal: React.FC<MaterialGeneratorModalProps> = ({
       </div>
       {/* 素材选择器 */}
       <MaterialSelector
-        projectId={projectId}
+        projectId={projectId ?? undefined}
         isOpen={isMaterialSelectorOpen}
         onClose={() => setIsMaterialSelectorOpen(false)}
         onSelect={handleSelectMaterials}
@@ -354,5 +368,3 @@ export const MaterialGeneratorModal: React.FC<MaterialGeneratorModalProps> = ({
     </Modal>
   );
 };
-
-

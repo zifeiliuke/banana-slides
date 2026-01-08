@@ -14,6 +14,9 @@ WORKDIR /app
 ARG VITE_API_BASE_URL
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
+ARG VITE_ENABLE_TASK_SSE
+ENV VITE_ENABLE_TASK_SSE=${VITE_ENABLE_TASK_SSE}
+
 # 复制 package.json
 COPY frontend/package.json ./
 
@@ -45,4 +48,3 @@ EXPOSE 80
 
 # 启动 nginx
 CMD ["nginx", "-g", "daemon off;"]
-

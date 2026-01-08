@@ -1,0 +1,208 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: banana-slides-mysql
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --max_connections=300
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-banana_slides}
+      MYSQL_USER: ${MYSQL_USER:-banana}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - banana-slides-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: banana-slides-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - banana-slides-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
+        APT_MIRROR: ${APT_MIRROR:-}
+        PYPI_INDEX_URL: ${PYPI_INDEX_URL:-}
+    container_name: banana-slides-backend-web
+    environment:
+      IN_DOCKER: "1"
+      RUN_MODE: "web"
+      RUN_MIGRATIONS: "1"
+      INIT_ADMIN: "1"
+
+      # Task queue
+      TASK_QUEUE_BACKEND: "redis"
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      RQ_QUEUE_FAST: ${RQ_QUEUE_FAST:-fast}
+      RQ_QUEUE_HEAVY: ${RQ_QUEUE_HEAVY:-heavy}
+
+      # Database
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: ${MYSQL_USER:-banana}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-banana_slides}
+
+      # Connection pool tuning (per-process)
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-3600}
+
+      # Gunicorn
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-4}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-4}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-60}
+
+      # App
+      SECRET_KEY: ${SECRET_KEY:-change-me}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    env_file:
+      - .env
+    volumes:
+      - ./uploads:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - banana-slides-network
+
+  worker-fast:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
+        APT_MIRROR: ${APT_MIRROR:-}
+        PYPI_INDEX_URL: ${PYPI_INDEX_URL:-}
+    environment:
+      IN_DOCKER: "1"
+      RUN_MODE: "worker"
+      RUN_MIGRATIONS: "0"
+      INIT_ADMIN: "0"
+
+      TASK_QUEUE_BACKEND: "redis"
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      RQ_QUEUES: ${RQ_QUEUES_FAST:-fast}
+
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: ${MYSQL_USER:-banana}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-banana_slides}
+
+      DB_POOL_SIZE: ${DB_POOL_SIZE_WORKER_FAST:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW_WORKER_FAST:-10}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-3600}
+
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    env_file:
+      - .env
+    volumes:
+      - ./uploads:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+    networks:
+      - banana-slides-network
+
+  worker-heavy:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
+        APT_MIRROR: ${APT_MIRROR:-}
+        PYPI_INDEX_URL: ${PYPI_INDEX_URL:-}
+    environment:
+      IN_DOCKER: "1"
+      RUN_MODE: "worker"
+      RUN_MIGRATIONS: "0"
+      INIT_ADMIN: "0"
+
+      TASK_QUEUE_BACKEND: "redis"
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      RQ_QUEUES: ${RQ_QUEUES_HEAVY:-heavy}
+
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: ${MYSQL_USER:-banana}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-banana_slides}
+
+      DB_POOL_SIZE: ${DB_POOL_SIZE_WORKER_HEAVY:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW_WORKER_HEAVY:-15}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-3600}
+
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    env_file:
+      - .env
+    volumes:
+      - ./uploads:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+    networks:
+      - banana-slides-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        DOCKER_BUILDKIT: 1
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+        VITE_ENABLE_TASK_SSE: ${VITE_ENABLE_TASK_SSE:-false}
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
+        NPM_REGISTRY: ${NPM_REGISTRY:-}
+    container_name: banana-slides-frontend
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - banana-slides-network
+
+networks:
+  banana-slides-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:

@@ -195,6 +195,10 @@ const TaskItem: React.FC<{ task: ExportTask; pages: Page[]; onRemove: () => void
   const isProcessing = task.status === 'PROCESSING' || task.status === 'RUNNING' || task.status === 'PENDING';
   
   const hasWarnings = task.status === 'COMPLETED' && task.progress?.warnings && task.progress.warnings.length > 0;
+  const queueText =
+    task.progress?.queue_status === 'queued' && task.progress?.queue_position && task.progress?.queue_length
+      ? `排队中：第 ${task.progress.queue_position}/${task.progress.queue_length}`
+      : null;
 
   return (
     <div className="flex items-start gap-3 py-2.5 px-3 hover:bg-gray-50 rounded-lg transition-colors">
@@ -231,6 +235,12 @@ const TaskItem: React.FC<{ task: ExportTask; pages: Page[]; onRemove: () => void
                     </span>
                   )}
                 </div>
+
+                {queueText && (
+                  <div className="text-[11px] text-gray-500 truncate" title={queueText}>
+                    {queueText}
+                  </div>
+                )}
                 
                 {/* 进度条 */}
                 <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden shadow-inner">
@@ -427,4 +437,3 @@ export const ExportTasksPanel: React.FC<ExportTasksPanelProps> = ({ projectId, p
     </div>
   );
 };
-

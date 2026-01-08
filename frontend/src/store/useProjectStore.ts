@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Project, Task } from '@/types';
 import * as api from '@/api/endpoints';
 import { debounce, normalizeProject, normalizeErrorMessage } from '@/utils';
+import { createBackoff } from '@/utils/polling';
 
 interface ProjectState {
   // 状态
@@ -174,7 +175,7 @@ const debouncedUpdatePage = debounce(
     let targetProjectId = projectId;
     if (!targetProjectId) {
       if (currentProject?.id) {
-        targetProjectId = currentProject.id;
+        targetProjectId = currentProject.id!;
       } else {
         targetProjectId = localStorage.getItem('currentProjectId') || undefined;
       }
@@ -256,7 +257,7 @@ const debouncedUpdatePage = debounce(
     });
 
     // 防抖后调用API
-    debouncedUpdatePage(currentProject.id, pageId, data);
+    debouncedUpdatePage(currentProject.id!, pageId, data);
   },
 
   // 立即保存所有页面的更改（用于保存按钮）
@@ -269,7 +270,7 @@ const debouncedUpdatePage = debounce(
     await new Promise(resolve => setTimeout(resolve, 1500));
     
     // 同步项目状态，这会从后端获取最新的updated_at
-    await get().syncProject(currentProject.id);
+    await get().syncProject(currentProject.id!);
   },
 
   // 重新排序页面
@@ -290,7 +291,7 @@ const debouncedUpdatePage = debounce(
     });
 
     try {
-      await api.updatePagesOrder(currentProject.id, newOrder);
+      await api.updatePagesOrder(currentProject.id!, newOrder);
     } catch (error: any) {
       set({ error: error.message || '更新顺序失败' });
       // 失败后重新同步
@@ -309,7 +310,7 @@ const debouncedUpdatePage = debounce(
         order_index: currentProject.pages.length,
       };
       
-      const response = await api.addPage(currentProject.id, newPage);
+      const response = await api.addPage(currentProject.id!, newPage);
       if (response.data) {
         await get().syncProject();
       }
@@ -324,7 +325,7 @@ const debouncedUpdatePage = debounce(
     if (!currentProject) return;
 
     try {
-      await api.deletePage(currentProject.id, pageId);
+      await api.deletePage(currentProject.id!, pageId);
       await get().syncProject();
     } catch (error: any) {
       set({ error: error.message || '删除页面失败' });
@@ -367,86 +368,125 @@ const debouncedUpdatePage = debounce(
       return;
     }
 
-    const poll = async () => {
-      try {
-        console.log(`[轮询] 查询任务状态: ${taskId}`);
-        const response = await api.getTaskStatus(currentProject.id!, taskId);
-        const task = response.data;
-        
-        if (!task) {
-          console.warn('[轮询] 响应中没有任务数据');
-          return;
-        }
+    const projectId = currentProject.id!;
+    const backoff = createBackoff({ minMs: 1000, maxMs: 8000, factor: 1.5, jitterRatio: 0.2 });
+    let lastProgressKey = '';
 
-        // 更新进度
-        if (task.progress) {
-          set({ taskProgress: task.progress });
-        }
-
-        console.log(`[轮询] Task ${taskId} 状态: ${task.status}`, task);
-
-        // 检查任务状态
-        if (task.status === 'COMPLETED') {
-          console.log(`[轮询] Task ${taskId} 已完成，刷新项目数据`);
-          
-          // 如果是导出可编辑PPTX任务，检查是否有下载链接
-          if (task.task_type === 'EXPORT_EDITABLE_PPTX' && task.progress) {
-            const progress = typeof task.progress === 'string' 
-              ? JSON.parse(task.progress) 
-              : task.progress;
-            
-            const downloadUrl = progress?.download_url;
-            if (downloadUrl) {
-              console.log('[导出可编辑PPTX] 从任务响应中获取下载链接:', downloadUrl);
-              // 延迟一下，确保状态更新完成后再打开下载链接
-              setTimeout(() => {
-                window.open(downloadUrl, '_blank');
-              }, 500);
-            } else {
-              console.warn('[导出可编辑PPTX] 任务完成但没有下载链接');
-            }
-          }
-          
-          set({ 
-            activeTaskId: null, 
-            taskProgress: null, 
-            isGlobalLoading: false 
-          });
-          // 刷新项目数据
-          await get().syncProject();
-        } else if (task.status === 'FAILED') {
-          console.error(`[轮询] Task ${taskId} 失败:`, task.error_message || task.error);
-          set({ 
-            error: normalizeErrorMessage(task.error_message || task.error || '任务失败'),
-            activeTaskId: null,
-            taskProgress: null,
-            isGlobalLoading: false
-          });
-        } else if (task.status === 'PENDING' || task.status === 'PROCESSING') {
-          // 继续轮询（PENDING 或 PROCESSING）
-          console.log(`[轮询] Task ${taskId} 处理中，2秒后继续轮询...`);
-          setTimeout(poll, 2000);
-        } else {
-          // 未知状态，停止轮询
-          console.warn(`[轮询] Task ${taskId} 未知状态: ${task.status}，停止轮询`);
-          set({ 
-            error: `未知任务状态: ${task.status}`,
-            activeTaskId: null,
-            taskProgress: null,
-            isGlobalLoading: false
-          });
-        }
-      } catch (error: any) {
-        console.error('任务轮询错误:', error);
-        set({ 
-          error: normalizeErrorMessage(error.message || '任务查询失败'),
-          activeTaskId: null,
-          isGlobalLoading: false
-        });
+    const applyTaskUpdate = async (task: Task) => {
+      const queue = (task as any).queue;
+      const baseProgress = (task.progress && typeof task.progress === 'object') ? task.progress : { total: 0, completed: 0 };
+      const progress: any = { ...baseProgress };
+      if (queue && queue.backend === 'rq') {
+        progress.queue_status = queue.status;
+        progress.queue_name = queue.queue;
+        progress.queue_length = queue.queue_length;
+        progress.queue_position = queue.position;
       }
+      set({ taskProgress: progress });
+
+      if (task.status === 'COMPLETED') {
+        // 如果是导出可编辑PPTX任务，检查是否有下载链接
+        if (task.task_type === 'EXPORT_EDITABLE_PPTX' && progress) {
+          const downloadUrl = progress?.download_url;
+          if (downloadUrl) {
+            setTimeout(() => window.open(downloadUrl, '_blank'), 500);
+          }
+        }
+
+        set({ activeTaskId: null, taskProgress: null, isGlobalLoading: false });
+        await get().syncProject();
+        return true;
+      }
+
+      if (task.status === 'FAILED') {
+        set({
+          error: normalizeErrorMessage(task.error_message || task.error || '任务失败'),
+          activeTaskId: null,
+          taskProgress: null,
+          isGlobalLoading: false,
+        });
+        return true;
+      }
+
+      return false;
     };
 
-    await poll();
+    const pollOnce = async () => {
+      const response = await api.getTaskStatus(projectId, taskId);
+      const task = response.data;
+      if (!task) throw new Error('响应中没有任务数据');
+
+      const progressKey = JSON.stringify({
+        status: task.status,
+        progress: task.progress,
+        queue: (task as any).queue,
+      });
+      if (progressKey !== lastProgressKey) {
+        backoff.reset();
+        lastProgressKey = progressKey;
+      }
+
+      return await applyTaskUpdate(task);
+    };
+
+    const enableSSE = (import.meta as any).env?.VITE_ENABLE_TASK_SSE === 'true';
+    const useSSE = enableSSE && typeof window !== 'undefined' && typeof EventSource !== 'undefined';
+
+    await new Promise<void>((resolve) => {
+      let sseFallbackUsed = false;
+      let es: EventSource | null = null;
+
+      const stop = () => {
+        if (es) {
+          es.close();
+          es = null;
+        }
+      };
+
+      const startPolling = () => {
+        const loop = async () => {
+          try {
+            const done = await pollOnce();
+            if (done) {
+              resolve();
+              return;
+            }
+            const delay = backoff.next();
+            setTimeout(loop, delay);
+          } catch (error: any) {
+            console.error('任务轮询错误:', error);
+            const delay = backoff.next();
+            setTimeout(loop, delay);
+          }
+        };
+        loop();
+      };
+
+      const startSSE = () => {
+        es = new EventSource(`/api/projects/${projectId}/tasks/${taskId}/events`);
+        es.addEventListener('task', async (evt: any) => {
+          try {
+            const task: Task = JSON.parse(evt.data);
+            const done = await applyTaskUpdate(task);
+            if (done) {
+              stop();
+              resolve();
+            }
+          } catch (e) {
+            // ignore parse errors; polling will recover
+          }
+        });
+        es.onerror = () => {
+          if (sseFallbackUsed) return;
+          sseFallbackUsed = true;
+          stop();
+          startPolling();
+        };
+      };
+
+      if (useSSE) startSSE();
+      else startPolling();
+    });
   },
 
   // 生成大纲（同步操作，不需要轮询）
@@ -534,6 +574,10 @@ const debouncedUpdatePage = debounce(
       
       // 启动轮询任务状态和定期同步项目数据
       const pollAndSync = async () => {
+        const backoff = createBackoff({ minMs: 1000, maxMs: 8000, factor: 1.5, jitterRatio: 0.2 });
+        let lastProgressKey = '';
+
+        const loop = async () => {
         try {
           // 轮询任务状态
           const taskResponse = await api.getTaskStatus(projectId, taskId);
@@ -542,7 +586,15 @@ const debouncedUpdatePage = debounce(
           if (task) {
             // 更新进度
             if (task.progress) {
-              set({ taskProgress: task.progress });
+              const queue = (task as any).queue;
+              const progress: any = { ...(task.progress as any) };
+              if (queue && queue.backend === 'rq') {
+                progress.queue_status = queue.status;
+                progress.queue_name = queue.queue;
+                progress.queue_length = queue.queue_length;
+                progress.queue_position = queue.position;
+              }
+              set({ taskProgress: progress });
             }
             
             // 同步项目数据以获取最新的页面状态
@@ -585,21 +637,27 @@ const debouncedUpdatePage = debounce(
                 activeTaskId: null,
                 error: normalizeErrorMessage(task.error_message || task.error || '生成描述失败')
               });
-            } else if (task.status === 'PENDING' || task.status === 'PROCESSING') {
-              // 继续轮询
-              setTimeout(pollAndSync, 2000);
+            } else if (task.status === 'PENDING' || task.status === 'PROCESSING' || task.status === 'RUNNING') {
+              const progressKey = JSON.stringify({ status: task.status, progress: task.progress, queue: (task as any).queue });
+              if (progressKey !== lastProgressKey) {
+                backoff.reset();
+                lastProgressKey = progressKey;
+              }
+              setTimeout(loop, backoff.next());
             }
           }
         } catch (error: any) {
           console.error('[生成描述] 轮询错误:', error);
           // 即使轮询出错，也继续尝试同步项目数据
           await get().syncProject();
-          setTimeout(pollAndSync, 2000);
+          setTimeout(loop, backoff.next());
         }
+        };
+        loop();
       };
       
       // 开始轮询
-      setTimeout(pollAndSync, 2000);
+      pollAndSync();
       
     } catch (error: any) {
       console.error('[生成描述] 启动任务失败:', error);
@@ -637,7 +695,7 @@ const debouncedUpdatePage = debounce(
       await get().syncProject();
       
       // 传递 force_regenerate=true 以允许重新生成已有描述
-      await api.generatePageDescription(currentProject.id, pageId, true);
+      await api.generatePageDescription(currentProject.id!, pageId, true);
       
       // 刷新项目数据
       await get().syncProject();
@@ -677,7 +735,7 @@ const debouncedUpdatePage = debounce(
     
     try {
       // 调用批量生成 API
-      const response = await api.generateImages(currentProject.id, undefined, pageIds);
+      const response = await api.generateImages(currentProject.id!, undefined, pageIds);
       const taskId = response.data?.task_id;
       
       if (taskId) {
@@ -714,16 +772,22 @@ const debouncedUpdatePage = debounce(
       return;
     }
 
+    const backoff = createBackoff({ minMs: 1000, maxMs: 8000, factor: 1.5, jitterRatio: 0.2 });
+    let lastProgressKey = '';
+    let consecutiveErrors = 0;
+    const maxConsecutiveErrors = 20;
+
     const poll = async () => {
       try {
         const response = await api.getTaskStatus(currentProject.id!, taskId);
         const task = response.data;
-        
+
         if (!task) {
           console.warn('[批量轮询] 响应中没有任务数据');
           return;
         }
 
+        consecutiveErrors = 0;
         console.log(`[批量轮询] Task ${taskId} 状态: ${task.status}`, task.progress);
 
         // 检查任务状态
@@ -756,12 +820,18 @@ const debouncedUpdatePage = debounce(
           });
           // 刷新项目数据以更新页面状态
           await get().syncProject();
-        } else if (task.status === 'PENDING' || task.status === 'PROCESSING') {
+        } else if (task.status === 'PENDING' || task.status === 'PROCESSING' || task.status === 'RUNNING') {
           // 继续轮询，同时同步项目数据以更新页面状态
           console.log(`[批量轮询] Task ${taskId} 处理中，同步项目数据...`);
           await get().syncProject();
-          console.log(`[批量轮询] Task ${taskId} 处理中，2秒后继续轮询...`);
-          setTimeout(poll, 2000);
+          const progressKey = JSON.stringify({ status: task.status, progress: task.progress, queue: (task as any).queue });
+          if (progressKey !== lastProgressKey) {
+            backoff.reset();
+            lastProgressKey = progressKey;
+          }
+          const delay = backoff.next();
+          console.log(`[批量轮询] Task ${taskId} 处理中，${delay}ms 后继续轮询...`);
+          setTimeout(poll, delay);
         } else {
           // 未知状态，停止轮询
           console.warn(`[批量轮询] Task ${taskId} 未知状态: ${task.status}，停止轮询`);
@@ -773,18 +843,33 @@ const debouncedUpdatePage = debounce(
             }
           });
           set({ pageGeneratingTasks: newTasks });
+          // 兜底刷新一次，避免 UI 卡在旧状态（例如服务重启导致轮询状态异常）
+          await get().syncProject();
         }
       } catch (error: any) {
-        console.error('[批量轮询] 轮询错误:', error);
-        // 清除所有相关页面的任务记录
-        const { pageGeneratingTasks } = get();
-        const newTasks = { ...pageGeneratingTasks };
-        pageIds.forEach(id => {
-          if (newTasks[id] === taskId) {
-            delete newTasks[id];
-          }
-        });
-        set({ pageGeneratingTasks: newTasks });
+        consecutiveErrors += 1;
+        console.error('[批量轮询] 轮询错误(将重试):', error);
+
+        // 后端短暂重启/网络抖动时，不要直接清理任务；继续退避重试，避免必须手动刷新
+        if (consecutiveErrors >= maxConsecutiveErrors) {
+          console.error(`[批量轮询] 连续失败 ${consecutiveErrors} 次，停止轮询并清理任务记录`);
+          const { pageGeneratingTasks } = get();
+          const newTasks = { ...pageGeneratingTasks };
+          pageIds.forEach(id => {
+            if (newTasks[id] === taskId) {
+              delete newTasks[id];
+            }
+          });
+          set({
+            pageGeneratingTasks: newTasks,
+            error: normalizeErrorMessage('任务轮询失败次数过多，请刷新页面后重试'),
+          });
+          return;
+        }
+
+        const delay = backoff.next();
+        console.log(`[批量轮询] 轮询失败，${delay}ms 后重试...`);
+        setTimeout(poll, delay);
       }
     };
 
@@ -805,7 +890,7 @@ const debouncedUpdatePage = debounce(
 
     set({ error: null });
     try {
-      const response = await api.editPageImage(currentProject.id, pageId, editPrompt, contextImages);
+      const response = await api.editPageImage(currentProject.id!, pageId, editPrompt, contextImages);
       const taskId = response.data?.task_id;
       
       if (taskId) {
@@ -840,7 +925,7 @@ const debouncedUpdatePage = debounce(
 
     set({ isGlobalLoading: true, error: null });
     try {
-      const response = await api.exportPPTX(currentProject.id, pageIds);
+      const response = await api.exportPPTX(currentProject.id!, pageIds);
       // 优先使用相对路径，避免 Docker 环境下的端口问题
       const downloadUrl =
         response.data?.download_url || response.data?.download_url_absolute;
@@ -865,7 +950,7 @@ const debouncedUpdatePage = debounce(
 
     set({ isGlobalLoading: true, error: null });
     try {
-      const response = await api.exportPDF(currentProject.id, pageIds);
+      const response = await api.exportPDF(currentProject.id!, pageIds);
       // 优先使用相对路径，避免 Docker 环境下的端口问题
       const downloadUrl =
         response.data?.download_url || response.data?.download_url_absolute;
@@ -891,7 +976,7 @@ const debouncedUpdatePage = debounce(
     try {
       console.log('[导出可编辑PPTX] 启动异步导出任务...');
       // startAsyncTask 中的 pollTask 会在任务完成时自动处理下载
-      await startAsyncTask(() => api.exportEditablePPTX(currentProject.id, filename, pageIds));
+      await startAsyncTask(() => api.exportEditablePPTX(currentProject.id!, filename, pageIds));
       console.log('[导出可编辑PPTX] 异步任务完成');
     } catch (error: any) {
       console.error('[导出可编辑PPTX] 导出失败:', error);

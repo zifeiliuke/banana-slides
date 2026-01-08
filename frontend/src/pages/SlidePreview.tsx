@@ -35,6 +35,7 @@ import { getImageUrl } from '@/api/client';
 import { getPageImageVersions, setCurrentImageVersion, updateProject, uploadTemplate, exportPPTX as apiExportPPTX, exportPDF as apiExportPDF, exportEditablePPTX as apiExportEditablePPTX } from '@/api/endpoints';
 import type { ImageVersion, DescriptionContent, ExportExtractorMethod, ExportInpaintMethod } from '@/types';
 import { normalizeErrorMessage } from '@/utils';
+import { createBackoff } from '@/utils/polling';
 
 export const SlidePreview: React.FC = () => {
   const navigate = useNavigate();
@@ -150,6 +151,33 @@ export const SlidePreview: React.FC = () => {
     };
     loadTemplates();
   }, [projectId, currentProject, syncProject]);
+
+  // 兜底：如果页面处于 GENERATING 但没有在本地轮询 taskId（例如后端重启/页面刷新后），
+  // 定时同步项目，直到生成结束，避免必须手动刷新才能看到生成结果。
+  useEffect(() => {
+    if (!projectId || !currentProject) return;
+
+    const hasGenerating = currentProject.pages?.some((p) => p.status === 'GENERATING');
+    const hasLocalPolling = Object.keys(pageGeneratingTasks || {}).length > 0;
+    if (!hasGenerating || hasLocalPolling) return;
+
+    let cancelled = false;
+    let timer: number | undefined;
+    const backoff = createBackoff({ minMs: 1500, maxMs: 8000, factor: 1.5, jitterRatio: 0.2 });
+
+    const tick = async () => {
+      if (cancelled) return;
+      await syncProject(projectId);
+      const delay = backoff.next();
+      timer = window.setTimeout(tick, delay);
+    };
+
+    tick();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [projectId, currentProject, pageGeneratingTasks, syncProject]);
 
   // 当项目加载后，初始化额外要求和风格描述
   // 只在项目首次加载或项目ID变化时初始化，避免覆盖用户正在输入的内容
@@ -817,6 +845,13 @@ export const SlidePreview: React.FC = () => {
     let loadingMessage = "处理中...";
     if (taskProgress && typeof taskProgress === 'object') {
       const progressData = taskProgress as any;
+      if (
+        progressData.queue_status === 'queued' &&
+        progressData.queue_position &&
+        progressData.queue_length
+      ) {
+        loadingMessage = `排队中（第 ${progressData.queue_position}/${progressData.queue_length}）...`;
+      }
       if (progressData.current_step) {
         // 使用后端提供的当前步骤信息
         const stepMap: Record<string, string> = {
@@ -1716,4 +1751,3 @@ export const SlidePreview: React.FC = () => {
     </div>
   );
 };
-

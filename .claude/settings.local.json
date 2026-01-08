@@ -48,7 +48,10 @@
       "Bash(paste:*)",
       "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiZjhkZTEwZWUtZjcwZC00MjdmLWE5MzAtZTk2MWNkNDkyNmJiIiwidXNlcm5hbWUiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsInRpZXIiOiJwcmVtaXVtIiwiZXhwIjoxNzY3MDk2MTkxLCJpYXQiOjE3NjcwOTI1OTEsInR5cGUiOiJhY2Nlc3MifQ.wGpwwsvLGlC-Ckmaq2QpzBF8NUJGZSk23Xyusm24hAk\")",
       "Bash(mysql:*)",
-      "Bash(docker restart:*)"
+      "Bash(docker restart:*)",
+      "Bash(git -C /home/liuke/banana-slides add backend/models/points.py)",
+      "Bash(git -C /home/liuke/banana-slides commit -m \"$\\(cat <<''EOF''\nfix: 修复删除用户时积分表级联删除报错\n\n问题：删除用户时 SQLAlchemy 尝试将 points_balance 表的 user_id 设为 NULL，\n导致违反 NOT NULL 约束。\n\n修复：为 PointsBalance 和 PointsTransaction 模型的 user relationship\n添加 passive_deletes=True，让数据库正确处理 ON DELETE CASCADE。\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C /home/liuke/banana-slides log --oneline -5)"
     ]
   }
 }

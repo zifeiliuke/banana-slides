@@ -293,7 +293,8 @@ def export_editable_pptx(project_id):
             max_workers=max_workers,
             export_extractor_method=export_extractor_method,
             export_inpaint_method=export_inpaint_method,
-            app=app
+            app=app,
+            _rq_user_id=get_current_user().id,
         )
         
         logger.info(f"Submitted recursive export task {task.id} to task manager")

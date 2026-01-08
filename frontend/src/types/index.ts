@@ -78,7 +78,15 @@ export interface Project {
 }
 
 // 任务状态
-export type TaskStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+export type TaskStatus = 'PENDING' | 'PROCESSING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+
+export interface TaskQueueInfo {
+  backend: 'rq';
+  status: string; // queued/started/finished/failed/...
+  queue?: string | null;
+  queue_length?: number;
+  position?: number | null; // 1-based when queued
+}
 
 // 任务信息
 export interface Task {
@@ -92,6 +100,7 @@ export interface Task {
     failed?: number;
     [key: string]: any; // 允许额外的字段，如material_id, image_url等
   };
+  queue?: TaskQueueInfo;
   error_message?: string;
   result?: any;
   error?: string; // 别名
@@ -227,4 +236,3 @@ export interface AuthResponse {
   access_token: string;
   refresh_token: string;
 }
-

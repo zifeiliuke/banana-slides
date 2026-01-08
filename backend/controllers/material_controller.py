@@ -264,16 +264,17 @@ def generate_material_image(project_id):
             task_manager.submit_task(
                 task.id,
                 generate_material_image_task,
-                task_project_id,  # 传递给任务函数，它会处理'global'的情况
-                prompt,
-                ai_service,
-                file_service,
-                ref_path_str,
-                additional_ref_images if additional_ref_images else None,
-                current_app.config['DEFAULT_ASPECT_RATIO'],
-                current_app.config['DEFAULT_RESOLUTION'],
-                temp_dir_str,
-                app
+                project_id=task_project_id,  # 传递给任务函数，它会处理'global'的情况
+                prompt=prompt,
+                ai_service=ai_service,
+                file_service=file_service,
+                ref_image_path=ref_path_str,
+                additional_ref_images=additional_ref_images if additional_ref_images else None,
+                aspect_ratio=current_app.config['DEFAULT_ASPECT_RATIO'],
+                resolution=current_app.config['DEFAULT_RESOLUTION'],
+                temp_dir=temp_dir_str,
+                app=app,
+                _rq_user_id=current_user.id,
             )
 
             # Return task_id immediately (不再清理temp_dir，由后台任务清理)
@@ -462,4 +463,3 @@ def associate_materials_to_project():
     except Exception as e:
         db.session.rollback()
         return error_response('SERVER_ERROR', str(e), 500)
-

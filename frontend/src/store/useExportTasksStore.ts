@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import * as api from '@/api/endpoints';
+import { createBackoff } from '@/utils/polling';
 
 // Note: Backend uses 'RUNNING' but we also accept 'PROCESSING' for compatibility
 export type ExportTaskStatus = 'PENDING' | 'PROCESSING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
@@ -19,6 +20,10 @@ export interface ExportTask {
     percent?: number;
     current_step?: string;
     messages?: string[];
+    queue_status?: string;
+    queue_name?: string | null;
+    queue_length?: number;
+    queue_position?: number | null;
     warnings?: string[];  // 导出警告信息
     warning_details?: {   // 警告详细信息
       style_extraction_failed?: Array<{ element_id: string; reason: string }>;
@@ -28,6 +33,7 @@ export interface ExportTask {
       other_warnings?: string[];
       total_warnings?: number;
     };
+    [key: string]: any;
   };
   downloadUrl?: string;
   filename?: string;
@@ -106,6 +112,57 @@ export const useExportTasksStore = create<ExportTasksState>()(
       },
 
       pollTask: async (id, projectId, taskId) => {
+        const backoff = createBackoff({ minMs: 1000, maxMs: 8000, factor: 1.5, jitterRatio: 0.2 });
+        let lastProgressKey = '';
+
+        const apply = (task: any) => {
+          const updates: Partial<ExportTask> = {
+            status: task.status as ExportTaskStatus,
+          };
+
+          if (task.progress) {
+            // Parse progress if it's a string (from database JSON field)
+            let progressData: any = task.progress;
+            if (typeof progressData === 'string') {
+              try {
+                progressData = JSON.parse(progressData);
+              } catch (e) {
+                console.warn('[ExportTasksStore] Failed to parse progress:', e);
+              }
+            }
+
+            const queue = task.queue;
+            if (queue && queue.backend === 'rq') {
+              progressData = {
+                ...(progressData || {}),
+                queue_status: queue.status,
+                queue_name: queue.queue,
+                queue_length: queue.queue_length,
+                queue_position: queue.position,
+              };
+            }
+
+            updates.progress = progressData;
+
+            // Extract download URL if available
+            if (progressData.download_url) {
+              updates.downloadUrl = progressData.download_url;
+            }
+            if (progressData.filename) {
+              updates.filename = progressData.filename;
+            }
+          }
+
+          if (task.status === 'COMPLETED') {
+            updates.completedAt = new Date().toISOString();
+          } else if (task.status === 'FAILED') {
+            updates.errorMessage = task.error_message || task.error || '导出失败';
+            updates.completedAt = new Date().toISOString();
+          }
+
+          get().updateTask(id, updates);
+        };
+
         const poll = async () => {
           try {
             const response = await api.getTaskStatus(projectId, taskId);
@@ -115,44 +172,20 @@ export const useExportTasksStore = create<ExportTasksState>()(
               console.warn('[ExportTasksStore] No task data in response');
               return;
             }
+            apply(task);
 
-            const updates: Partial<ExportTask> = {
-              status: task.status as ExportTaskStatus,
-            };
-
-            if (task.progress) {
-              // Parse progress if it's a string (from database JSON field)
-              let progressData = task.progress;
-              if (typeof progressData === 'string') {
-                try {
-                  progressData = JSON.parse(progressData);
-                } catch (e) {
-                  console.warn('[ExportTasksStore] Failed to parse progress:', e);
-                }
-              }
-              
-              updates.progress = progressData;
-              
-              // Extract download URL if available
-              if (progressData.download_url) {
-                updates.downloadUrl = progressData.download_url;
-              }
-              if (progressData.filename) {
-                updates.filename = progressData.filename;
-              }
+            const progressKey = JSON.stringify({
+              status: task.status,
+              progress: task.progress,
+              queue: (task as any).queue,
+            });
+            if (progressKey !== lastProgressKey) {
+              backoff.reset();
+              lastProgressKey = progressKey;
             }
 
-            if (task.status === 'COMPLETED') {
-              updates.completedAt = new Date().toISOString();
-              get().updateTask(id, updates);
-            } else if (task.status === 'FAILED') {
-              updates.errorMessage = task.error_message || task.error || '导出失败';
-              updates.completedAt = new Date().toISOString();
-              get().updateTask(id, updates);
-            } else if (task.status === 'PENDING' || task.status === 'RUNNING' || task.status === 'PROCESSING') {
-              get().updateTask(id, updates);
-              // Continue polling
-              setTimeout(poll, 2000);
+            if (task.status === 'PENDING' || task.status === 'RUNNING' || task.status === 'PROCESSING') {
+              setTimeout(poll, backoff.next());
             }
           } catch (error: any) {
             console.error('[ExportTasksStore] Poll error:', error);
@@ -164,7 +197,48 @@ export const useExportTasksStore = create<ExportTasksState>()(
           }
         };
 
-        await poll();
+        const enableSSE = (import.meta as any).env?.VITE_ENABLE_TASK_SSE === 'true';
+        const useSSE = enableSSE && typeof window !== 'undefined' && typeof EventSource !== 'undefined';
+        if (!useSSE) {
+          await poll();
+          return;
+        }
+
+        await new Promise<void>((resolve) => {
+          let es: EventSource | null = null;
+          let fallbackUsed = false;
+
+          const stop = () => {
+            if (es) {
+              es.close();
+              es = null;
+            }
+          };
+
+          const startPolling = () => {
+            poll().finally(resolve);
+          };
+
+          es = new EventSource(`/api/projects/${projectId}/tasks/${taskId}/events`);
+          es.addEventListener('task', (evt: any) => {
+            try {
+              const task = JSON.parse(evt.data);
+              apply(task);
+              if (task.status === 'COMPLETED' || task.status === 'FAILED') {
+                stop();
+                resolve();
+              }
+            } catch {
+              // ignore
+            }
+          });
+          es.onerror = () => {
+            if (fallbackUsed) return;
+            fallbackUsed = true;
+            stop();
+            startPolling();
+          };
+        });
       },
 
       restoreActiveTasks: () => {
@@ -194,4 +268,3 @@ export const useExportTasksStore = create<ExportTasksState>()(
     }
   )
 );
-

@@ -4,9 +4,10 @@ Project Controller - handles project-related endpoints
 import json
 import logging
 import traceback
+import time
 from datetime import datetime
 
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, Response, stream_with_context
 from sqlalchemy import desc
 from sqlalchemy.orm import joinedload
 from werkzeug.exceptions import BadRequest
@@ -648,13 +649,14 @@ def generate_descriptions(project_id):
         task_manager.submit_task(
             task.id,
             generate_descriptions_task,
-            project_id,
-            ai_service,
-            project_context,
-            outline,
-            max_workers,
-            app,
-            language
+            project_id=project_id,
+            ai_service=ai_service,
+            project_context=project_context,
+            outline=outline,
+            max_workers=max_workers,
+            app=app,
+            language=language,
+            _rq_user_id=current_user.id,
         )
         
         # Update project status
@@ -708,6 +710,15 @@ def generate_images(project_id):
         
         if not pages:
             return bad_request("No pages found for project")
+
+        # Check usage quota (only for system API users)
+        try:
+            from services.usage_service import UsageService
+            can_generate, remaining, quota_message = UsageService.check_image_generation_quota(current_user, len(pages))
+            if not can_generate:
+                return error_response('QUOTA_EXCEEDED', quota_message, 429)
+        except Exception as quota_error:
+            logger.warning(f"Failed to check quota: {quota_error}")
         
         # Reconstruct outline from pages with part structure
         outline = _reconstruct_outline_from_pages(pages)
@@ -751,18 +762,19 @@ def generate_images(project_id):
         task_manager.submit_task(
             task.id,
             generate_images_task,
-            project_id,
-            ai_service,
-            file_service,
-            outline,
-            use_template,
-            max_workers,
-            current_app.config['DEFAULT_ASPECT_RATIO'],
-            current_app.config['DEFAULT_RESOLUTION'],
-            app,
-            combined_requirements if combined_requirements.strip() else None,
-            language,
-            selected_page_ids if selected_page_ids else None
+            project_id=project_id,
+            ai_service=ai_service,
+            file_service=file_service,
+            outline=outline,
+            use_template=use_template,
+            max_workers=max_workers,
+            aspect_ratio=current_app.config['DEFAULT_ASPECT_RATIO'],
+            resolution=current_app.config['DEFAULT_RESOLUTION'],
+            app=app,
+            extra_requirements=combined_requirements if combined_requirements.strip() else None,
+            language=language,
+            page_ids=selected_page_ids if selected_page_ids else None,
+            _rq_user_id=current_user.id,
         )
         
         # Update project status
@@ -798,12 +810,96 @@ def get_task_status(project_id, task_id):
 
         if not task or task.project_id != project_id:
             return not_found('Task')
-        
-        return success_response(task.to_dict())
+
+        queue_info = None
+        try:
+            from services.task_queue import get_task_queue_info
+
+            queue_info = get_task_queue_info(task.id)
+        except Exception:
+            queue_info = None
+
+        data = task.to_dict()
+        if queue_info:
+            data["queue"] = queue_info
+
+        return success_response(data)
     
     except Exception as e:
         logger.error(f"get_task_status failed: {str(e)}", exc_info=True)
         return error_response('SERVER_ERROR', str(e), 500)
+
+
+@project_bp.route('/<project_id>/tasks/<task_id>/events', methods=['GET'])
+@login_required
+def task_status_events(project_id, task_id):
+    """
+    SSE: stream task status/progress updates.
+    GET /api/projects/{project_id}/tasks/{task_id}/events
+    """
+    current_user = get_current_user()
+    project = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
+    if not project:
+        return not_found('Project')
+
+    def _stream():
+        last_payload = None
+        try:
+            while True:
+                task = Task.query.get(task_id)
+                if not task or task.project_id != project_id:
+                    yield "event: error\ndata: Task not found\n\n"
+                    break
+
+                queue_info = None
+                try:
+                    from services.task_queue import get_task_queue_info
+
+                    queue_info = get_task_queue_info(task.id)
+                except Exception:
+                    queue_info = None
+
+                data = task.to_dict()
+                if queue_info:
+                    data["queue"] = queue_info
+
+                payload = json.dumps(data, ensure_ascii=False)
+                if payload != last_payload:
+                    yield f"event: task\ndata: {payload}\n\n"
+                    last_payload = payload
+
+                if task.status in ("COMPLETED", "FAILED"):
+                    break
+
+                # Keep connection alive
+                yield ": heartbeat\n\n"
+
+                # Adaptive interval to reduce load while queued
+                interval = 1.0
+                if queue_info and queue_info.get("status") == "queued":
+                    interval = 2.0
+                    pos = queue_info.get("position") or 0
+                    if isinstance(pos, int) and pos >= 10:
+                        interval = 3.0
+
+                db.session.remove()
+                time.sleep(interval)
+        except GeneratorExit:
+            return
+        finally:
+            try:
+                db.session.remove()
+            except Exception:
+                pass
+
+    return Response(
+        stream_with_context(_stream()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @project_bp.route('/<project_id>/refine/outline', methods=['POST'])

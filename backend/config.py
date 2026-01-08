@@ -55,9 +55,9 @@ class Config:
     # MySQL 连接池配置
     SQLALCHEMY_ENGINE_OPTIONS = {
         'pool_pre_ping': True,  # 连接前检查
-        'pool_recycle': 3600,  # 1小时回收连接
-        'pool_size': 10,  # 连接池大小
-        'max_overflow': 20,  # 最大溢出连接数
+        'pool_recycle': int(os.getenv('DB_POOL_RECYCLE', '3600')),  # 1小时回收连接
+        'pool_size': int(os.getenv('DB_POOL_SIZE', '10')),  # 连接池大小（每进程）
+        'max_overflow': int(os.getenv('DB_MAX_OVERFLOW', '20')),  # 最大溢出连接数（每进程）
     }
     
     # 文件存储配置

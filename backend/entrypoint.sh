@@ -131,22 +131,55 @@ with app.app_context():
 main() {
     log_info "Starting Banana Slides Backend..."
 
+    local run_mode="${RUN_MODE:-web}"
+    local run_migrations_flag="${RUN_MIGRATIONS:-}"
+    local init_admin_flag="${INIT_ADMIN:-}"
+
+    # sensible defaults
+    if [ -z "$run_migrations_flag" ]; then
+        if [ "$run_mode" = "web" ]; then
+            run_migrations_flag="1"
+        else
+            run_migrations_flag="0"
+        fi
+    fi
+    if [ -z "$init_admin_flag" ]; then
+        if [ "$run_mode" = "web" ]; then
+            init_admin_flag="1"
+        else
+            init_admin_flag="0"
+        fi
+    fi
+
     # 1. 检查数据库配置
     check_db_config
 
     # 2. 等待数据库可用
     wait_for_db
 
-    # 3. 运行数据库迁移
-    run_migrations
+    # 3. 运行数据库迁移（仅 web 需要；worker 可跳过）
+    if [ "$run_migrations_flag" = "1" ]; then
+        run_migrations
+    else
+        log_info "Skipping database migrations (RUN_MIGRATIONS=$run_migrations_flag)"
+    fi
 
-    # 4. 初始化管理员用户
-    init_admin_user
+    # 4. 初始化默认管理员用户（可选）
+    if [ "$init_admin_flag" = "1" ]; then
+        init_admin_user
+    else
+        log_info "Skipping admin init (INIT_ADMIN=$init_admin_flag)"
+    fi
 
-    # 5. 启动应用
-    log_info "Starting Flask application..."
-    cd /app/backend
-    exec /app/.venv/bin/python app.py
+    # 5. 启动应用 / worker
+    if [ "$run_mode" = "worker" ]; then
+        log_info "Starting RQ worker..."
+        cd /app/backend
+        exec /app/.venv/bin/python worker.py
+    fi
+
+    log_info "Starting web server (gunicorn)..."
+    exec /app/.venv/bin/gunicorn --chdir /app/backend -c /app/backend/gunicorn.conf.py app:app
 }
 
 main "$@"
