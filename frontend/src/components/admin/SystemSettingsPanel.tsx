@@ -417,7 +417,7 @@ export const SystemSettingsPanel: React.FC = () => {
               loading={isTesting}
               disabled={!settings.smtp_configured && !settings.smtp_host}
             >
-              发送测试邮件
+              测试邮件
             </Button>
           </div>
         </div>
