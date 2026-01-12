@@ -1185,6 +1185,9 @@ export interface ReferralStatsData {
   total_referrals: number;
   registered_referrals: number;
   premium_referrals: number;
+  total_register_rewards_points?: number;
+  total_premium_rewards_points?: number;
+  total_rewards_points?: number;
   total_register_rewards_days: number;
   total_premium_rewards_days: number;
   total_rewards_days: number;
@@ -1278,7 +1281,12 @@ export interface UserReferralStats {
   premium_invites: number;
   total_reward_days: number;
   register_reward_days: number;
+  invitee_register_reward_days?: number;
   premium_reward_days: number;
+  total_reward_points?: number;
+  register_reward_points?: number;
+  invitee_register_reward_points?: number;
+  premium_reward_points?: number;
 }
 
 /**

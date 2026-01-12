@@ -627,8 +627,9 @@ def get_ai_service_for_user(user) -> AIService:
     """
     Get an AIService instance configured for the specific user based on their tier.
 
-    - Premium users: Use global Settings (admin's API key)
-    - Free users: Must use their own UserSettings API key
+    - If user configured their own API Key in UserSettings: use it (highest priority)
+    - Otherwise, premium users: use global Settings (system API)
+    - Otherwise, free users: must configure their own UserSettings API key
 
     Args:
         user: User model instance (must have is_premium_active() method)
@@ -654,30 +655,26 @@ def get_ai_service_for_user(user) -> AIService:
             except Exception as e:
                 logger.warning(f"Failed to record text generation usage: {e}")
 
-    # Check if user is premium
-    if user.is_premium_active():
-        # Premium user: use global Settings (default behavior)
-        logger.info(f"User {user.username} is premium, using global Settings")
-        ai_service = AIService()
-        # 设置使用量回调
+    # Prefer user's own API configuration if present (even for premium users).
+    user_settings = UserSettings.query.filter_by(user_id=user.id).first()
+    if user_settings and user_settings.has_api_key() and not user.is_admin():
+        config_override = user_settings.to_ai_config()
+        logger.info(f"Using UserSettings for user {user.username}")
+        ai_service = AIService(config_override=config_override)
+        # 设置使用量回调（使用自己的API时不会记录，因为 using_system_api 为 False）
         ai_service.text_provider.set_usage_callback(usage_callback)
         return ai_service
 
-    # Free user: must use their own UserSettings
+    # Premium user: can fall back to system API (global Settings)
+    if user.is_premium_active():
+        logger.info(f"User {user.username} is premium, using global Settings")
+        ai_service = AIService()
+        ai_service.text_provider.set_usage_callback(usage_callback)
+        return ai_service
+
+    # Free user without API key: not allowed
     logger.info(f"User {user.username} is free tier, checking UserSettings")
-    user_settings = UserSettings.query.filter_by(user_id=user.id).first()
-
-    if not user_settings or not user_settings.has_api_key():
-        raise ValueError(
-            "免费用户需要在账户设置中配置自己的API Key才能使用AI功能。"
-            "请前往「设置 > 账户信息」配置您的API Key，或升级到高级会员。"
-        )
-
-    # Use user's own settings
-    config_override = user_settings.to_ai_config()
-    logger.info(f"Using UserSettings for user {user.username}")
-    ai_service = AIService(config_override=config_override)
-    # 设置使用量回调（免费用户使用自己的API时不会记录，因为 using_system_api 为 False）
-    ai_service.text_provider.set_usage_callback(usage_callback)
-    return ai_service
-
+    raise ValueError(
+        "免费用户需要在账户设置中配置自己的API Key才能使用AI功能。"
+        "请前往「设置 > 账户信息」配置您的API Key，或升级到高级会员。"
+    )

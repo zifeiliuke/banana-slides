@@ -27,14 +27,14 @@ class UsageService:
         if user.is_admin():
             return True
 
+        # 用户只要配置了自己的API Key，就优先使用自己的API（包括会员用户）
+        user_settings = UserSettings.query.filter_by(user_id=user.id).first()
+        if user_settings and user_settings.has_api_key():
+            return False
+
         # 检查用户是否有有效积分（会员）
         if user.is_premium_active():
             return True
-
-        # 免费用户检查是否配置了自己的API
-        user_settings = UserSettings.query.filter_by(user_id=user.id).first()
-        if user_settings and user_settings.has_api_key():
-            return False  # 使用自己的API
 
         # 没有配置API的免费用户会在调用时报错，这里返回True
         return True

@@ -56,4 +56,24 @@ describe('Login page', () => {
     expect(screen.queryByText('验证码')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '发送验证码' })).not.toBeInTheDocument()
   })
+
+  it('switches to register mode when visiting referral link', async () => {
+    vi.spyOn(apiClient, 'get').mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: { require_email_verification: false },
+      },
+    } as any)
+
+    render(
+      <MemoryRouter initialEntries={['/register?ref=ABCD1234']}>
+        <Routes>
+          <Route path="/register" element={<Login />} />
+        </Routes>
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByText(/使用邀请码/i)).toBeInTheDocument()
+    expect(screen.getByText('创建账户')).toBeInTheDocument()
+  })
 })

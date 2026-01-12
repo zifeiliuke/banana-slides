@@ -231,9 +231,16 @@ class ReferralService:
             'total_invites': total_invites,
             'registered_invites': registered_invites,
             'premium_invites': premium_invites,
+            # 积分奖励数据
             'total_reward_points': total_reward_points,
             'register_reward_points': settings.referral_inviter_register_points,
+            'invitee_register_reward_points': settings.referral_invitee_register_points,
             'premium_reward_points': settings.referral_inviter_upgrade_points,
+            # 兼容旧字段名（前端使用）
+            'total_reward_days': total_reward_points,
+            'register_reward_days': settings.referral_inviter_register_points,
+            'invitee_register_reward_days': settings.referral_invitee_register_points,
+            'premium_reward_days': settings.referral_inviter_upgrade_points,
         }
 
     @staticmethod

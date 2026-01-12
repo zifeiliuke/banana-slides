@@ -194,14 +194,30 @@ export const Settings: React.FC = () => {
   // 是否为管理员
   const isAdmin = user?.role === 'admin';
 
+  type SensitiveFieldKey = 'api_key' | 'mineru_token';
+  type SensitiveMode = 'keep' | 'update' | 'clear';
+
   const [settings, setSettings] = useState<SettingsType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState(initialFormData);
+  const [sensitiveModes, setSensitiveModes] = useState<Record<SensitiveFieldKey, SensitiveMode>>({
+    api_key: 'update',
+    mineru_token: 'update',
+  });
 
   useEffect(() => {
     loadSettings();
   }, [isAdmin]);
+
+  const deriveSensitiveModesFromSettings = (next: SettingsType | null) => {
+    const apiKeyConfigured = Boolean(next?.api_key_length && next.api_key_length > 0);
+    const mineruTokenConfigured = Boolean(next?.mineru_token_length && next.mineru_token_length > 0);
+    setSensitiveModes({
+      api_key: apiKeyConfigured ? 'keep' : 'update',
+      mineru_token: mineruTokenConfigured ? 'keep' : 'update',
+    });
+  };
 
   const loadSettings = async () => {
     setIsLoading(true);
@@ -211,6 +227,7 @@ export const Settings: React.FC = () => {
         const response = await api.getSettings();
         if (response.data) {
           setSettings(response.data);
+          deriveSensitiveModesFromSettings(response.data);
           setFormData({
             ai_provider_format: response.data.ai_provider_format || 'gemini',
             api_base_url: response.data.api_base_url || '',
@@ -233,7 +250,7 @@ export const Settings: React.FC = () => {
         if (response.data) {
           const userSettings = response.data;
           // 转换为通用设置格式
-          setSettings({
+          const nextSettings = {
             ai_provider_format: userSettings.ai_provider_format || 'gemini',
             api_base_url: userSettings.api_base_url || '',
             api_key_length: userSettings.api_key_length || 0,
@@ -248,7 +265,9 @@ export const Settings: React.FC = () => {
             mineru_api_base: '',
             mineru_token_length: 0,
             output_language: 'zh',
-          } as SettingsType);
+          } as SettingsType;
+          setSettings(nextSettings);
+          deriveSensitiveModesFromSettings(nextSettings);
           setFormData({
             ai_provider_format: userSettings.ai_provider_format || 'gemini',
             api_base_url: userSettings.api_base_url || '',
@@ -288,19 +307,18 @@ export const Settings: React.FC = () => {
           ...otherData,
         };
 
-        if (api_key) {
-          payload.api_key = api_key;
-        }
+        if (sensitiveModes.api_key === 'clear') payload.api_key = '';
+        if (sensitiveModes.api_key === 'update' && api_key) payload.api_key = api_key;
 
-        if (mineru_token) {
-          payload.mineru_token = mineru_token;
-        }
+        if (sensitiveModes.mineru_token === 'clear') payload.mineru_token = '';
+        if (sensitiveModes.mineru_token === 'update' && mineru_token) payload.mineru_token = mineru_token;
 
         const response = await api.updateSettings(payload);
         if (response.data) {
           setSettings(response.data);
           show({ message: '设置保存成功', type: 'success' });
           setFormData(prev => ({ ...prev, api_key: '', mineru_token: '' }));
+          deriveSensitiveModesFromSettings(response.data);
         }
       } else {
         // 普通用户保存个人设置
@@ -312,14 +330,13 @@ export const Settings: React.FC = () => {
           image_caption_model: formData.image_caption_model || undefined,
         };
 
-        if (formData.api_key) {
-          userPayload.api_key = formData.api_key;
-        }
+        if (sensitiveModes.api_key === 'clear') userPayload.api_key = '';
+        if (sensitiveModes.api_key === 'update' && formData.api_key) userPayload.api_key = formData.api_key;
 
         const response = await api.updateUserSettings(userPayload);
         if (response.data) {
           const userSettings = response.data;
-          setSettings({
+          const nextSettings = {
             ai_provider_format: userSettings.ai_provider_format || 'gemini',
             api_base_url: userSettings.api_base_url || '',
             api_key_length: userSettings.api_key_length || 0,
@@ -333,7 +350,9 @@ export const Settings: React.FC = () => {
             mineru_api_base: '',
             mineru_token_length: 0,
             output_language: 'zh',
-          } as SettingsType);
+          } as SettingsType;
+          setSettings(nextSettings);
+          deriveSensitiveModesFromSettings(nextSettings);
           show({ message: '设置保存成功', type: 'success' });
           setFormData(prev => ({ ...prev, api_key: '' }));
         }
@@ -376,6 +395,7 @@ export const Settings: React.FC = () => {
               image_caption_model: response.data.image_caption_model || '',
               output_language: response.data.output_language || 'zh',
             });
+            deriveSensitiveModesFromSettings(response.data);
             show({ message: '设置已重置', type: 'success' });
           }
         } catch (error: any) {
@@ -460,9 +480,26 @@ export const Settings: React.FC = () => {
     }
 
     // text, password, number 类型
-    const placeholder = field.sensitiveField && settings && field.lengthKey
-      ? `已设置（长度: ${settings[field.lengthKey]}）`
-      : field.placeholder || '';
+    const isSensitive = Boolean(field.sensitiveField && (field.key === 'api_key' || field.key === 'mineru_token'));
+    const sensitiveKey = field.key as SensitiveFieldKey;
+    const sensitiveMode = isSensitive ? sensitiveModes[sensitiveKey] : undefined;
+    const existingLength = field.sensitiveField && settings && field.lengthKey
+      ? Number(settings[field.lengthKey] || 0)
+      : 0;
+    const hasExistingSecret = isSensitive && existingLength > 0;
+    const maskedDots = '•'.repeat(12);
+
+    const placeholder = isSensitive
+      ? (sensitiveMode === 'clear'
+        ? '已标记清除（保存后生效）'
+        : field.placeholder || '')
+      : (field.sensitiveField && settings && field.lengthKey
+        ? `已设置（长度: ${settings[field.lengthKey]}）`
+        : field.placeholder || '');
+
+    const inputValue = (isSensitive && hasExistingSecret && sensitiveMode === 'keep')
+      ? maskedDots
+      : (value as string | number);
 
     return (
       <div key={field.key}>
@@ -470,18 +507,106 @@ export const Settings: React.FC = () => {
           label={field.label}
           type={field.type === 'number' ? 'number' : field.type}
           placeholder={placeholder}
-          value={value as string | number}
+          value={inputValue}
+          readOnly={Boolean(isSensitive && hasExistingSecret && sensitiveMode === 'keep')}
           onChange={(e) => {
             const newValue = field.type === 'number' 
               ? parseInt(e.target.value) || (field.min ?? 0)
               : e.target.value;
+            if (isSensitive && typeof newValue === 'string') {
+              const trimmed = newValue.trim();
+              // 已有密钥时：输入为空表示“清除”，否则表示“更新”
+              if (hasExistingSecret && trimmed === '') {
+                setSensitiveModes(prev => ({ ...prev, [sensitiveKey]: 'clear' }));
+                handleFieldChange(field.key, '');
+                return;
+              }
+              setSensitiveModes(prev => ({ ...prev, [sensitiveKey]: 'update' }));
+              handleFieldChange(field.key, newValue);
+              return;
+            }
             handleFieldChange(field.key, newValue);
           }}
           min={field.min}
           max={field.max}
         />
+        {isSensitive && hasExistingSecret && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {sensitiveMode === 'keep' && (
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    setSensitiveModes(prev => ({ ...prev, [sensitiveKey]: 'update' }));
+                    handleFieldChange(field.key, '');
+                  }}
+                >
+                  修改
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    setSensitiveModes(prev => ({ ...prev, [sensitiveKey]: 'clear' }));
+                    handleFieldChange(field.key, '');
+                  }}
+                >
+                  清除
+                </Button>
+              </>
+            )}
+            {sensitiveMode === 'update' && (
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setSensitiveModes(prev => ({ ...prev, [sensitiveKey]: 'keep' }));
+                    handleFieldChange(field.key, '');
+                  }}
+                >
+                  保持不变
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    setSensitiveModes(prev => ({ ...prev, [sensitiveKey]: 'clear' }));
+                    handleFieldChange(field.key, '');
+                  }}
+                >
+                  清除
+                </Button>
+              </>
+            )}
+            {sensitiveMode === 'clear' && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setSensitiveModes(prev => ({ ...prev, [sensitiveKey]: 'keep' }));
+                  handleFieldChange(field.key, '');
+                }}
+              >
+                撤销清除
+              </Button>
+            )}
+          </div>
+        )}
         {field.description && (
           <p className="mt-1 text-sm text-gray-500">{field.description}</p>
+        )}
+        {isSensitive && hasExistingSecret && sensitiveMode === 'keep' && (
+          <p className="mt-1 text-xs text-gray-500">已保存（为安全起见不展示明文）</p>
+        )}
+        {isSensitive && sensitiveMode === 'clear' && (
+          <p className="mt-1 text-xs text-amber-600">已标记清除，点击“保存设置”后生效</p>
         )}
       </div>
     );
@@ -618,16 +743,47 @@ const AccountSettings: React.FC = () => {
   useEffect(() => {
     loadReferralStats();
     loadPointsBalance();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleCopyLink = async () => {
     if (!referralStats?.referral_link) return;
+
+    const textToCopy = referralStats.referral_link;
+
+    // 尝试使用现代 Clipboard API
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(textToCopy);
+        setCopiedLink(true);
+        show({ message: '邀请链接已复制到剪贴板', type: 'success' });
+        setTimeout(() => setCopiedLink(false), 2000);
+        return;
+      } catch (error) {
+        // 继续尝试降级方案
+      }
+    }
+
+    // 降级方案：使用传统的 execCommand
     try {
-      await navigator.clipboard.writeText(referralStats.referral_link);
-      setCopiedLink(true);
-      show({ message: '邀请链接已复制到剪贴板', type: 'success' });
-      setTimeout(() => setCopiedLink(false), 2000);
+      const textArea = document.createElement('textarea');
+      textArea.value = textToCopy;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-9999px';
+      textArea.style.top = '-9999px';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+
+      const successful = document.execCommand('copy');
+      document.body.removeChild(textArea);
+
+      if (successful) {
+        setCopiedLink(true);
+        show({ message: '邀请链接已复制到剪贴板', type: 'success' });
+        setTimeout(() => setCopiedLink(false), 2000);
+      } else {
+        show({ message: '复制失败，请手动复制', type: 'error' });
+      }
     } catch (error) {
       show({ message: '复制失败，请手动复制', type: 'error' });
     }
@@ -901,7 +1057,7 @@ const AccountSettings: React.FC = () => {
                   </div>
                   <div className="bg-yellow-50 rounded-lg p-3 text-center">
                     <div className="text-2xl font-bold text-yellow-600">{referralStats.total_reward_days}</div>
-                    <div className="text-xs text-gray-600">获得天数</div>
+                    <div className="text-xs text-gray-600">获得积分</div>
                   </div>
                 </div>
 
@@ -913,12 +1069,13 @@ const AccountSettings: React.FC = () => {
                   </h4>
                   <ul className="text-sm text-gray-600 space-y-1">
                     <li>
-                      • 好友通过您的链接注册，您和好友各获得{' '}
-                      <span className="font-medium text-yellow-600">{referralStats.register_reward_days} 天</span>会员
+                      • 好友通过您的链接注册，您获得{' '}
+                      <span className="font-medium text-yellow-600">{referralStats.register_reward_days}</span> 积分，好友获得{' '}
+                      <span className="font-medium text-yellow-600">{referralStats.invitee_register_reward_days ?? referralStats.register_reward_days}</span> 积分
                     </li>
                     <li>
                       • 好友升级为付费会员，您额外获得{' '}
-                      <span className="font-medium text-yellow-600">{referralStats.premium_reward_days} 天</span>会员
+                      <span className="font-medium text-yellow-600">{referralStats.premium_reward_days}</span> 积分
                     </li>
                   </ul>
                 </div>

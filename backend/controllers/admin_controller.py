@@ -773,7 +773,7 @@ def get_referral_stats():
         ).count()
         premium_referrals = Referral.query.filter_by(status='premium').count()
 
-        # 计算总奖励天数
+        # 计算总奖励（积分体系下：这里统计的是积分；字段名保持兼容）
         total_register_rewards = db.session.query(
             db.func.sum(Referral.register_reward_days)
         ).filter(Referral.register_reward_granted == True).scalar() or 0
@@ -782,13 +782,20 @@ def get_referral_stats():
             db.func.sum(Referral.premium_reward_days)
         ).filter(Referral.premium_reward_granted == True).scalar() or 0
 
+        total_rewards = total_register_rewards + total_premium_rewards
+
         return success_response({
             'total_referrals': total_referrals,
             'registered_referrals': registered_referrals,
             'premium_referrals': premium_referrals,
+            # 新字段：明确为积分
+            'total_register_rewards_points': total_register_rewards,
+            'total_premium_rewards_points': total_premium_rewards,
+            'total_rewards_points': total_rewards,
+            # 兼容旧字段名（仍返回，但语义已是积分）
             'total_register_rewards_days': total_register_rewards,
             'total_premium_rewards_days': total_premium_rewards,
-            'total_rewards_days': total_register_rewards + total_premium_rewards,
+            'total_rewards_days': total_rewards,
         })
 
     except Exception as e:

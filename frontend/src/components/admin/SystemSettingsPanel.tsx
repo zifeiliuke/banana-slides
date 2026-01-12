@@ -45,6 +45,7 @@ interface ReferralStats {
   total_referrals: number;
   registered_referrals: number;
   premium_referrals: number;
+  total_rewards_points?: number;
   total_rewards_days: number;
 }
 
@@ -176,8 +177,8 @@ export const SystemSettingsPanel: React.FC = () => {
               <Gift size={20} className="text-purple-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-500">邀请奖励天数</p>
-              <p className="text-xl font-bold">{referralStats?.total_rewards_days || 0} 天</p>
+              <p className="text-sm text-gray-500">邀请奖励积分</p>
+              <p className="text-xl font-bold">{referralStats?.total_rewards_points ?? referralStats?.total_rewards_days ?? 0} 积分</p>
             </div>
           </div>
         </Card>

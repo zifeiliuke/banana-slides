@@ -48,8 +48,12 @@ generate-example.py
 *.mdc
 *.pdf
 .cursor/worktrees.json
-uploads/
-!assets/*
+# 运行时上传文件（不要提交到 Git；部署时请用 rsync/备份迁移）
+uploads/**
+!uploads/.gitkeep
+
+# 允许提交项目自带的静态资源
+!assets/**
 
 # 镜像源配置脚本的备份文件
 *.orig

@@ -44,6 +44,7 @@ function App() {
       <Routes>
         {/* 公开路由 */}
         <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Login />} />
 
         {/* 受保护的路由 */}
         <Route path="/" element={<AuthGuard><Home /></AuthGuard>} />

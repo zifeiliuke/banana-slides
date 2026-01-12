@@ -68,9 +68,13 @@ def update_user_settings():
             settings.api_base_url = data['api_base_url'] or None
 
         if 'api_key' in data:
-            # 只有非空时才更新
-            if data['api_key']:
-                settings.api_key = data['api_key']
+            # 允许清空：传空字符串/None 表示清除已保存的 Key
+            raw_key = data.get('api_key')
+            if raw_key is None:
+                settings.api_key = None
+            else:
+                key = str(raw_key).strip()
+                settings.api_key = key or None
 
         if 'text_model' in data:
             settings.text_model = data['text_model'] or None

@@ -73,7 +73,12 @@ def update_settings():
                 settings.api_base_url = value if value != "" else None
 
         if "api_key" in data:
-            settings.api_key = data["api_key"]
+            raw_key = data.get("api_key")
+            if raw_key is None:
+                settings.api_key = None
+            else:
+                value = str(raw_key).strip()
+                settings.api_key = value if value != "" else None
 
         # Update image generation configuration
         if "image_resolution" in data:
@@ -114,7 +119,12 @@ def update_settings():
             settings.mineru_api_base = (data["mineru_api_base"] or "").strip() or None
 
         if "mineru_token" in data:
-            settings.mineru_token = data["mineru_token"]
+            raw_token = data.get("mineru_token")
+            if raw_token is None:
+                settings.mineru_token = None
+            else:
+                value = str(raw_token).strip()
+                settings.mineru_token = value if value != "" else None
 
         if "image_caption_model" in data:
             settings.image_caption_model = (data["image_caption_model"] or "").strip() or None
