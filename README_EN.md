@@ -237,14 +237,16 @@ docker compose up -d
 ```
 
 > [!TIP]
-> If you encounter network issues, you can uncomment the mirror source configurations in the `.env` file and rerun the startup command:
+> **For users in China**: `.env.example` now has Chinese mirror sources enabled by default, which can speed up builds by **over 10x** (from 20 minutes to 2 minutes)
+>
+> **For users outside China**: If deploying on overseas servers, you can comment out the mirror configurations in `.env` to use official sources:
 > ```env
-> # Uncomment the following in the .env file to use Chinese mirror sources
-> DOCKER_REGISTRY=docker.1ms.run/
-> GHCR_REGISTRY=ghcr.nju.edu.cn/
-> APT_MIRROR=mirrors.aliyun.com
-> PYPI_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple
-> NPM_REGISTRY=https://registry.npmmirror.com/
+> # Comment out these lines to use official sources
+> # DOCKER_REGISTRY=docker.1ms.run/
+> # GHCR_REGISTRY=ghcr.nju.edu.cn/
+> # APT_MIRROR=mirrors.aliyun.com
+> # PYPI_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple
+> # NPM_REGISTRY=https://registry.npmmirror.com/
 > ```
 
 3. **Access the Application**
